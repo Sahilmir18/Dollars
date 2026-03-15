@@ -25,23 +25,23 @@ async function startServer() {
     }
   });
 
-  const PORT = process.env.PORT || 3000;
+  const PORT = parseInt(process.env.PORT || '3000', 10);
 
-  // Azure Cosmos DB Connection
-  const azureConnectionString = process.env.AZURE_COSMOS_CONNECTION_STRING;
+  // MongoDB Connection
+  const mongoConnectionString = process.env.MONGODB_URI || process.env.AZURE_COSMOS_CONNECTION_STRING;
   let useDatabase = false;
 
-  if (azureConnectionString) {
+  if (mongoConnectionString) {
     try {
       // Added a 5-second timeout so the server doesn't hang forever if blocked by a firewall
-      await mongoose.connect(azureConnectionString, { serverSelectionTimeoutMS: 5000 });
-      console.log('Successfully connected to Azure Cosmos DB (MongoDB API)');
+      await mongoose.connect(mongoConnectionString, { serverSelectionTimeoutMS: 5000 });
+      console.log('Successfully connected to MongoDB');
       useDatabase = true;
     } catch (err) {
-      console.error('Failed to connect to Azure DB. Falling back to in-memory storage.', err);
+      console.error('Failed to connect to MongoDB. Falling back to in-memory storage.', err);
     }
   } else {
-    console.log('No Azure connection string found. Using in-memory storage.');
+    console.log('No MongoDB connection string found. Using in-memory storage.');
   }
 
   // Server-side state for chat messages (Fallback if DB is not configured)

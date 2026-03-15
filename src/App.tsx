@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { Send, LogOut, User, Headphones, Smile, UserCircle, UserSquare } from 'lucide-react';
+import { Send, LogOut, User, Headphones, Smile, UserCircle, UserSquare, Frown, Meh, Laugh, Angry, Annoyed, Ghost, Skull, Glasses, Heart, Bot, Cat, Dog, Star } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { motion } from 'motion/react';
@@ -29,7 +29,7 @@ const getUserColor = (username: string) => {
 };
 
 const getUserIcon = (username: string) => {
-  const icons = [User, Headphones, Smile, UserCircle, UserSquare];
+  const icons = [User, Headphones, Smile, UserCircle, UserSquare, Frown, Meh, Laugh, Angry, Annoyed, Ghost, Skull, Glasses, Heart, Bot, Cat, Dog, Star];
   const hash = username.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
   const Icon = icons[hash % icons.length];
   return <Icon size={28} className="text-white" strokeWidth={1.5} />;
