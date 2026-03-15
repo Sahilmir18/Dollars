@@ -25,7 +25,7 @@ async function startServer() {
     }
   });
 
-  const PORT = 3000;
+  const PORT = process.env.PORT || 3000;
 
   // Azure Cosmos DB Connection
   const azureConnectionString = process.env.AZURE_COSMOS_CONNECTION_STRING;
@@ -33,7 +33,8 @@ async function startServer() {
 
   if (azureConnectionString) {
     try {
-      await mongoose.connect(azureConnectionString);
+      // Added a 5-second timeout so the server doesn't hang forever if blocked by a firewall
+      await mongoose.connect(azureConnectionString, { serverSelectionTimeoutMS: 5000 });
       console.log('Successfully connected to Azure Cosmos DB (MongoDB API)');
       useDatabase = true;
     } catch (err) {
@@ -97,6 +98,15 @@ async function startServer() {
 
       // Broadcast the message to all connected clients
       io.emit('message', msg);
+    });
+
+    // Handle typing events
+    socket.on('typing', (username) => {
+      socket.broadcast.emit('typing', username);
+    });
+
+    socket.on('stopTyping', (username) => {
+      socket.broadcast.emit('stopTyping', username);
     });
 
     socket.on('disconnect', () => {

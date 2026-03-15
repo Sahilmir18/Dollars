@@ -20,11 +20,14 @@ export default function App() {
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
   const [error, setError] = useState('');
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   const [socket, setSocket] = useState<Socket | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
+  const [typingUsers, setTypingUsers] = useState<string[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Auto-scroll to bottom when new messages arrive
   const scrollToBottom = () => {
@@ -53,6 +56,17 @@ export default function App() {
         setMessages((prev) => [...prev, msg]);
       });
 
+      newSocket.on('typing', (user: string) => {
+        setTypingUsers((prev) => {
+          if (!prev.includes(user)) return [...prev, user];
+          return prev;
+        });
+      });
+
+      newSocket.on('stopTyping', (user: string) => {
+        setTypingUsers((prev) => prev.filter((u) => u !== user));
+      });
+
       setSocket(newSocket);
 
       return () => {
@@ -61,18 +75,27 @@ export default function App() {
     }
   }, [isAuthenticated]);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    setIsLoggingIn(true);
+    setError('');
+
+    // Simulate a network request for validation
+    await new Promise(resolve => setTimeout(resolve, 1500));
+
     if (password.toLowerCase() !== 'baccano') {
       setError('Incorrect password.');
+      setIsLoggingIn(false);
       return;
     }
     if (!username.trim()) {
       setError('Screen name is required.');
+      setIsLoggingIn(false);
       return;
     }
-    setError('');
+    
     setIsAuthenticated(true);
+    setIsLoggingIn(false);
   };
 
   const handleSendMessage = (e: React.FormEvent) => {
@@ -85,6 +108,27 @@ export default function App() {
     });
     
     setInputValue('');
+    
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+    socket.emit('stopTyping', username.trim());
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setInputValue(e.target.value);
+    
+    if (socket && username) {
+      socket.emit('typing', username.trim());
+      
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+      
+      typingTimeoutRef.current = setTimeout(() => {
+        socket.emit('stopTyping', username.trim());
+      }, 2000);
+    }
   };
 
   const handleLogout = () => {
@@ -105,6 +149,7 @@ export default function App() {
           <div className="text-center">
             <h1 className="text-4xl font-bold tracking-widest text-white mb-2">DOLLARS</h1>
             <p className="text-sm text-gray-500">Anonymous Chat Network</p>
+            <p className="text-xs text-gray-700 mt-4 italic">Created by Sebastian</p>
           </div>
 
           <form onSubmit={handleLogin} className="space-y-6 mt-12">
@@ -114,7 +159,8 @@ export default function App() {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-transparent border-b border-gray-700 focus:border-white outline-none py-2 text-white transition-colors"
+                disabled={isLoggingIn}
+                className="w-full bg-transparent border-b border-gray-700 focus:border-white outline-none py-2 text-white transition-colors disabled:opacity-50"
                 placeholder="Enter password..."
                 autoFocus
               />
@@ -127,7 +173,8 @@ export default function App() {
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                className="w-full bg-transparent border-b border-gray-700 focus:border-white outline-none py-2 text-white transition-colors"
+                disabled={isLoggingIn}
+                className="w-full bg-transparent border-b border-gray-700 focus:border-white outline-none py-2 text-white transition-colors disabled:opacity-50"
                 placeholder="Choose an alias..."
                 maxLength={20}
               />
@@ -137,9 +184,20 @@ export default function App() {
 
             <button
               type="submit"
-              className="w-full border border-gray-700 hover:bg-white hover:text-black transition-colors py-3 uppercase tracking-widest text-sm font-bold mt-8"
+              disabled={isLoggingIn}
+              className="w-full border border-gray-700 hover:bg-white hover:text-black transition-colors py-3 uppercase tracking-widest text-sm font-bold mt-8 flex justify-center items-center disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-white"
             >
-              Enter
+              {isLoggingIn ? (
+                <span className="flex items-center gap-2">
+                  <svg className="animate-spin h-4 w-4 text-current" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  AUTHENTICATING...
+                </span>
+              ) : (
+                'Enter'
+              )}
             </button>
           </form>
         </div>
@@ -154,6 +212,7 @@ export default function App() {
         <div className="flex items-center gap-4">
           <h1 className="text-xl font-bold tracking-widest text-white">DOLLARS</h1>
           <span className="text-xs text-gray-600 hidden sm:inline-block">Global Room</span>
+          <span className="text-xs text-gray-700 italic hidden sm:inline-block">by Sebastian</span>
         </div>
         <div className="flex items-center gap-4">
           <span className="text-sm text-gray-400">[{username}]</span>
@@ -204,13 +263,24 @@ export default function App() {
         <div ref={messagesEndRef} />
       </main>
 
+      {/* Typing Indicator */}
+      {typingUsers.length > 0 && (
+        <div className="px-4 py-1 text-xs text-gray-500 italic bg-black">
+          {typingUsers.length === 1
+            ? `${typingUsers[0]} is typing...`
+            : typingUsers.length === 2
+            ? `${typingUsers[0]} and ${typingUsers[1]} are typing...`
+            : `${typingUsers.length} people are typing...`}
+        </div>
+      )}
+
       {/* Input Area */}
       <footer className="border-t border-gray-800 p-4 bg-black">
         <form onSubmit={handleSendMessage} className="max-w-4xl mx-auto flex gap-4">
           <input
             type="text"
             value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
+            onChange={handleInputChange}
             className="flex-1 bg-transparent border-b border-gray-700 focus:border-white outline-none py-2 text-white transition-colors"
             placeholder="Type a message..."
             autoFocus
