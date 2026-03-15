@@ -10,7 +10,8 @@ const messageSchema = new mongoose.Schema({
   id: String,
   user: String,
   text: String,
-  timestamp: Number
+  timestamp: Number,
+  type: { type: String, default: 'user' }
 });
 const MessageModel = mongoose.model('Message', messageSchema);
 
@@ -45,8 +46,10 @@ async function startServer() {
   }
 
   // Server-side state for chat messages (Fallback if DB is not configured)
-  const messages: { id: string; user: string; text: string; timestamp: number }[] = [];
+  const messages: { id: string; user: string; text: string; timestamp: number; type?: string }[] = [];
   const MAX_MESSAGES = 200;
+
+  const connectedUsers = new Map<string, string>();
 
   io.on('connection', async (socket) => {
     console.log('User connected:', socket.id);
@@ -72,6 +75,7 @@ async function startServer() {
         user: data.user || 'Anonymous',
         text: data.text,
         timestamp: Date.now(),
+        type: 'user'
       };
       
       if (useDatabase) {
@@ -109,8 +113,69 @@ async function startServer() {
       socket.broadcast.emit('stopTyping', username);
     });
 
-    socket.on('disconnect', () => {
+    socket.on('join', async (username) => {
+      connectedUsers.set(socket.id, username);
+      
+      const msg = {
+        id: Math.random().toString(36).substring(2, 10),
+        user: 'System',
+        text: `${username} joined the chat`,
+        timestamp: Date.now(),
+        type: 'system'
+      };
+      
+      if (useDatabase) {
+        try {
+          await MessageModel.create(msg);
+          const count = await MessageModel.countDocuments();
+          if (count > MAX_MESSAGES) {
+            const oldestMessages = await MessageModel.find().sort({ timestamp: 1 }).limit(count - MAX_MESSAGES);
+            const oldestIds = oldestMessages.map(m => m._id);
+            await MessageModel.deleteMany({ _id: { $in: oldestIds } });
+          }
+        } catch (err) {
+          console.error('Error saving system message:', err);
+        }
+      } else {
+        messages.push(msg);
+        if (messages.length > MAX_MESSAGES) messages.shift();
+      }
+      
+      io.emit('message', msg);
+    });
+
+    socket.on('disconnect', async () => {
       console.log('User disconnected:', socket.id);
+      const username = connectedUsers.get(socket.id);
+      if (username) {
+        connectedUsers.delete(socket.id);
+        const msg = {
+          id: Math.random().toString(36).substring(2, 10),
+          user: 'System',
+          text: `${username} left the chat`,
+          timestamp: Date.now(),
+          type: 'system'
+        };
+        
+        if (useDatabase) {
+          try {
+            await MessageModel.create(msg);
+            const count = await MessageModel.countDocuments();
+            if (count > MAX_MESSAGES) {
+              const oldestMessages = await MessageModel.find().sort({ timestamp: 1 }).limit(count - MAX_MESSAGES);
+              const oldestIds = oldestMessages.map(m => m._id);
+              await MessageModel.deleteMany({ _id: { $in: oldestIds } });
+            }
+          } catch (err) {
+            console.error('Error saving system message:', err);
+          }
+        } else {
+          messages.push(msg);
+          if (messages.length > MAX_MESSAGES) messages.shift();
+        }
+        
+        io.emit('message', msg);
+      }
     });
   });
 

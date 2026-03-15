@@ -14,6 +14,7 @@ interface Message {
   user: string;
   text: string;
   timestamp: number;
+  type?: 'user' | 'system';
 }
 
 const getUserColor = (username: string) => {
@@ -66,6 +67,7 @@ export default function App() {
       
       newSocket.on('connect', () => {
         console.log('Connected to server');
+        newSocket.emit('join', username.trim());
       });
 
       newSocket.on('init', (history: Message[]) => {
@@ -262,6 +264,23 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-black text-gray-300 font-sans flex flex-col">
+      {/* Header */}
+      <header className="flex justify-between items-center p-4 border-b border-gray-900 bg-black shrink-0">
+        <div className="flex items-center gap-2">
+          <div className="w-4 h-4 bg-white rounded-full"></div>
+          <h1 className="text-xl font-light text-white uppercase tracking-widest">ALIAS</h1>
+        </div>
+        <button 
+          type="button"
+          onClick={handleLogout}
+          className="text-gray-500 hover:text-white transition-colors flex items-center gap-2 text-sm uppercase tracking-widest"
+          title="Disconnect"
+        >
+          <span className="hidden sm:inline">Exit</span>
+          <LogOut size={18} />
+        </button>
+      </header>
+
       {/* Chat Area */}
       <main className="flex-1 overflow-y-auto p-4 sm:p-8 space-y-6">
         {messages.length === 0 ? (
@@ -269,7 +288,20 @@ export default function App() {
             No messages yet. Be the first to speak.
           </div>
         ) : (
-          messages.map((msg, idx) => (
+          messages.map((msg, idx) => {
+            if (msg.type === 'system') {
+              return (
+                <div key={msg.id || idx} className="flex justify-center my-4">
+                  <span className="text-xs text-gray-500 italic bg-gray-900/50 px-4 py-1.5 rounded-full flex items-center gap-2">
+                    {msg.text}
+                    <span className="text-[10px] text-gray-600">
+                      {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </span>
+                </div>
+              );
+            }
+            return (
             <div key={msg.id || idx} className="flex items-start gap-4">
               {/* Avatar */}
               <div className="flex flex-col items-center w-16 shrink-0">
@@ -296,14 +328,15 @@ export default function App() {
                 </span>
               </div>
             </div>
-          ))
+            );
+          })
         )}
         <div ref={messagesEndRef} />
       </main>
 
       {/* Typing Indicator */}
       {typingUsers.length > 0 && (
-        <div className="px-4 py-1 text-xs text-gray-500 italic bg-black">
+        <div className="px-6 py-3 text-sm text-gray-400 italic bg-black border-t border-gray-900">
           {typingUsers.length === 1
             ? `${typingUsers[0]} is typing...`
             : typingUsers.length === 2
@@ -313,13 +346,13 @@ export default function App() {
       )}
 
       {/* Input Area */}
-      <footer className="p-4 bg-black">
+      <footer className="p-4 bg-black border-t border-gray-900">
         <form onSubmit={handleSendMessage} className="max-w-4xl mx-auto flex gap-4 items-center">
           <input
             type="text"
             value={inputValue}
             onChange={handleInputChange}
-            className="flex-1 bg-transparent border-b border-gray-700 focus:border-white outline-none py-2 text-white transition-colors"
+            className="flex-1 bg-transparent border-b border-gray-700 focus:border-white outline-none py-3 text-white transition-colors text-base"
             placeholder="Type a message..."
             autoFocus
             maxLength={500}
@@ -329,15 +362,7 @@ export default function App() {
             disabled={!inputValue.trim()}
             className="text-gray-500 hover:text-white disabled:opacity-50 disabled:hover:text-gray-500 transition-colors px-2"
           >
-            <Send size={20} />
-          </button>
-          <button 
-            type="button"
-            onClick={handleLogout}
-            className="text-gray-500 hover:text-white transition-colors px-2"
-            title="Disconnect"
-          >
-            <LogOut size={20} />
+            <Send size={24} />
           </button>
         </form>
       </footer>
