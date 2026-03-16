@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { Send, LogOut, User, Headphones, Smile, UserCircle, UserSquare, Frown, Meh, Laugh, Angry, Annoyed, Ghost, Skull, Glasses, Heart, Bot, Cat, Dog, Star, Pencil, X, Trash2, Reply, Zap, Sparkles, VolumeX, Volume2 } from 'lucide-react';
+import { Send, LogOut, User, Headphones, Smile, UserCircle, UserSquare, Frown, Meh, Laugh, Angry, Annoyed, Ghost, Skull, Glasses, Heart, Bot, Cat, Dog, Star, Pencil, X, Trash2, Reply, Zap, Sparkles, VolumeX, Volume2, SmilePlus, ThumbsDown, Eraser } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { motion } from 'motion/react';
@@ -17,11 +17,14 @@ interface Message {
   type?: 'user' | 'system';
   isEdited?: boolean;
   likes?: string[];
+  dislikes?: string[];
+  reactions?: Record<string, string[]>;
   replyTo?: {
     id: string;
     user: string;
     text: string;
   };
+  icon?: string;
 }
 
 const playNotificationSound = () => {
@@ -69,17 +72,33 @@ const getUserColor = (username: string) => {
   return colors[hash % colors.length];
 };
 
-const getUserIcon = (username: string) => {
-  const icons = [User, Headphones, Smile, UserCircle, UserSquare, Frown, Meh, Laugh, Angry, Annoyed, Ghost, Skull, Glasses, Heart, Bot, Cat, Dog, Star];
-  const hash = username.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-  const Icon = icons[hash % icons.length];
+const getUserIcon = (iconName?: string, username?: string) => {
+  const icons: Record<string, React.ElementType> = {
+    User, Headphones, Smile, UserCircle, UserSquare, Frown, Meh, Laugh, Angry, Annoyed, Ghost, Skull, Glasses, Heart, Bot, Cat, Dog, Star
+  };
+  
+  if (iconName && icons[iconName]) {
+    const Icon = icons[iconName];
+    return <Icon size={28} className="text-white" strokeWidth={1.5} />;
+  }
+
+  const iconList = Object.values(icons);
+  const hash = (username || '').split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+  const Icon = iconList[hash % iconList.length];
   return <Icon size={28} className="text-white" strokeWidth={1.5} />;
 };
+
+const AVAILABLE_ICONS = [
+  'User', 'Headphones', 'Smile', 'UserCircle', 'UserSquare', 
+  'Frown', 'Meh', 'Laugh', 'Angry', 'Annoyed', 
+  'Ghost', 'Skull', 'Glasses', 'Heart', 'Bot'
+];
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
+  const [selectedIcon, setSelectedIcon] = useState<string>('User');
   const [error, setError] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
@@ -93,6 +112,7 @@ export default function App() {
   const [messageToDelete, setMessageToDelete] = useState<string | null>(null);
   const [mutedUsers, setMutedUsers] = useState<string[]>([]);
   const [spamWarning, setSpamWarning] = useState<string | null>(null);
+  const [activeReactionMessageId, setActiveReactionMessageId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -113,7 +133,7 @@ export default function App() {
       
       newSocket.on('connect', () => {
         console.log('Connected to server');
-        newSocket.emit('join', username.trim());
+        newSocket.emit('join', { username: username.trim(), icon: selectedIcon });
       });
 
       newSocket.on('init', (history: Message[]) => {
@@ -139,8 +159,16 @@ export default function App() {
         setMessages((prev) => prev.filter(m => m.id !== id));
       });
 
-      newSocket.on('messageLiked', ({ id, likes }: { id: string, likes: string[] }) => {
-        setMessages((prev) => prev.map(m => m.id === id ? { ...m, likes } : m));
+      newSocket.on('messageLiked', ({ id, likes, dislikes }: { id: string, likes: string[], dislikes?: string[] }) => {
+        setMessages((prev) => prev.map(m => m.id === id ? { ...m, likes, dislikes: dislikes || m.dislikes } : m));
+      });
+
+      newSocket.on('messageDisliked', ({ id, dislikes, likes }: { id: string, dislikes: string[], likes?: string[] }) => {
+        setMessages((prev) => prev.map(m => m.id === id ? { ...m, dislikes, likes: likes || m.likes } : m));
+      });
+
+      newSocket.on('messageReacted', ({ id, reactions }: { id: string, reactions: Record<string, string[]> }) => {
+        setMessages((prev) => prev.map(m => m.id === id ? { ...m, reactions } : m));
       });
 
       newSocket.on('spamWarning', (warningMsg: string) => {
@@ -259,15 +287,20 @@ export default function App() {
 
   const getUserBadge = (targetUser: string) => {
     let msgCount = 0;
-    let likesReceived = 0;
+    let interactionsReceived = 0;
     messages.forEach(m => {
       if (m.user === targetUser && m.type !== 'system') {
         msgCount++;
-        if (m.likes) likesReceived += m.likes.length;
+        if (m.likes) interactionsReceived += m.likes.length;
+        if (m.reactions) {
+          Object.values(m.reactions).forEach((users: string[]) => {
+            interactionsReceived += users.length;
+          });
+        }
       }
     });
 
-    if (likesReceived >= 3) {
+    if (interactionsReceived >= 3) {
       return <Sparkles size={12} className="text-white/80" title="Highly Resonated" />;
     }
     if (msgCount >= 5) {
@@ -282,6 +315,10 @@ export default function App() {
         ? prev.filter(u => u !== targetUser)
         : [...prev, targetUser]
     );
+  };
+
+  const handleClearChat = () => {
+    setMessages([]);
   };
 
   const handleLogout = () => {
@@ -334,12 +371,41 @@ export default function App() {
             </motion.p>
           </div>
 
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 1, delay: 1.5 }}
+            className="mt-8"
+          >
+            <label className="block text-xs uppercase tracking-widest mb-3 text-gray-500 text-center">Select Avatar</label>
+            <div className="grid grid-cols-5 gap-2 max-w-[250px] mx-auto">
+              {AVAILABLE_ICONS.map((iconName) => {
+                const isSelected = selectedIcon === iconName;
+                return (
+                  <button
+                    key={iconName}
+                    type="button"
+                    onClick={() => setSelectedIcon(iconName)}
+                    className={cn(
+                      "w-10 h-10 flex items-center justify-center border transition-all",
+                      isSelected 
+                        ? "border-green-500 bg-green-500/20 text-green-400" 
+                        : "border-gray-800 bg-gray-900 text-gray-500 hover:border-gray-600 hover:text-gray-300"
+                    )}
+                  >
+                    {getUserIcon(iconName)}
+                  </button>
+                );
+              })}
+            </div>
+          </motion.div>
+
           <motion.form 
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 1, delay: 1.6 }}
             onSubmit={handleLogin} 
-            className="space-y-6 mt-12"
+            className="space-y-6 mt-8"
           >
             <div>
               <label className="block text-xs uppercase tracking-widest mb-2 text-gray-500">Password</label>
@@ -408,6 +474,15 @@ export default function App() {
           </div>
           <button 
             type="button"
+            onClick={handleClearChat}
+            className="text-gray-500 hover:text-white transition-colors flex items-center gap-2 text-sm uppercase tracking-widest mr-4"
+            title="Clear Chat"
+          >
+            <span className="hidden sm:inline">Clear</span>
+            <Eraser size={18} />
+          </button>
+          <button 
+            type="button"
             onClick={handleLogout}
             className="text-gray-500 hover:text-white transition-colors flex items-center gap-2 text-sm uppercase tracking-widest"
             title="Disconnect"
@@ -472,7 +547,7 @@ export default function App() {
               {/* Avatar */}
               <div className="flex flex-col items-center w-16 shrink-0">
                 <div className={cn("w-12 h-12 border-2 border-white flex items-center justify-center mb-1", getUserColor(msg.user))}>
-                  {getUserIcon(msg.user)}
+                  {getUserIcon(msg.icon, msg.user)}
                 </div>
                 <div className="flex items-center gap-1 w-full justify-center">
                   <span className="text-white text-xs truncate text-center">{msg.user}</span>
@@ -481,78 +556,139 @@ export default function App() {
               </div>
 
               {/* Message Bubble and Timestamp */}
-              <div className="flex items-end gap-2 max-w-[75%] mt-1">
-                <div className="relative">
-                  {/* Tail */}
-                  <div className={cn("absolute -left-2 top-3 w-4 h-4 border-t-2 border-l-2 border-white transform -rotate-45", getUserColor(msg.user))}></div>
-                  
-                  {/* Bubble */}
-                  <div className={cn(
-                    "relative z-10 px-4 py-2 border-2 rounded-xl text-white text-sm break-words transition-all duration-500", 
-                    getUserColor(msg.user),
-                    (msg.likes?.length || 0) >= 2 ? "border-white shadow-[0_0_15px_rgba(255,255,255,0.4)] bg-white/10" : "border-white shadow-sm"
-                  )}>
-                    {msg.replyTo && (
-                      <div className="mb-2 pl-2 border-l-2 border-white/50 text-xs text-white/70 bg-black/20 rounded-r p-1">
-                        <div className="font-bold text-white/90">@{msg.replyTo.user}</div>
-                        <div className="truncate">{msg.replyTo.text}</div>
-                      </div>
-                    )}
-                    {msg.text}
+              <div className="flex flex-col gap-1 max-w-[75%] mt-1">
+                <div className="flex items-end gap-2">
+                  <div className="relative">
+                    {/* Tail */}
+                    <div className={cn("absolute -left-2 top-3 w-4 h-4 border-t-2 border-l-2 border-white transform -rotate-45", getUserColor(msg.user))}></div>
+                    
+                    {/* Bubble */}
+                    <div className={cn(
+                      "relative z-10 px-4 py-2 border-2 rounded-xl text-white text-sm break-words transition-all duration-500", 
+                      getUserColor(msg.user),
+                      (msg.likes?.length || 0) + (msg.reactions ? (Object.values(msg.reactions) as string[][]).reduce((acc, curr) => acc + curr.length, 0) : 0) >= 2 ? "border-white shadow-[0_0_15px_rgba(255,255,255,0.4)] bg-white/10" : "border-white shadow-sm"
+                    )}>
+                      {msg.replyTo && (
+                        <div className="mb-2 pl-2 border-l-2 border-white/50 text-xs text-white/70 bg-black/20 rounded-r p-1">
+                          <div className="font-bold text-white/90">@{msg.replyTo.user}</div>
+                          <div className="truncate">{msg.replyTo.text}</div>
+                        </div>
+                      )}
+                      {msg.text}
+                    </div>
                   </div>
-                </div>
-                {/* Timestamp & Actions */}
-                <div className="flex items-center gap-2 shrink-0 mb-1">
-                  <span className="text-[10px] text-gray-500">
-                    {formatMessageDate(msg.timestamp)}
-                    {msg.isEdited && <span className="ml-1 italic opacity-70">(edited)</span>}
-                  </span>
-                  <div className="flex items-center gap-2 ml-1">
-                    <button 
-                      onClick={() => socket?.emit('toggleLike', { messageId: msg.id, user: username.trim() })}
-                      className={cn("flex items-center gap-1 transition-colors", msg.likes?.includes(username) ? "text-white" : "text-gray-500 hover:text-white")}
-                      title="Like message"
-                    >
-                      <Heart size={12} className={msg.likes?.includes(username) ? "fill-white" : ""} />
-                      {(msg.likes?.length || 0) > 0 && <span className="text-[10px] font-medium">{msg.likes?.length}</span>}
-                    </button>
-                    <button 
-                      onClick={() => handleReplyClick(msg)}
-                      className="text-gray-500 hover:text-white transition-colors"
-                      title="Reply to message"
-                    >
-                      <Reply size={12} />
-                    </button>
-                    {isOwnMessage ? (
-                      <>
-                        {canEdit && (
-                          <button 
-                            onClick={() => handleEditClick(msg)}
-                            className="text-gray-500 hover:text-white transition-colors"
-                            title="Edit message (within 15 mins)"
-                          >
-                            <Pencil size={12} />
-                          </button>
-                        )}
-                        <button 
-                          onClick={() => setMessageToDelete(msg.id)}
-                          className="text-gray-500 hover:text-red-400 transition-colors"
-                          title="Delete message"
-                        >
-                          <Trash2 size={12} />
-                        </button>
-                      </>
-                    ) : (
+                  {/* Timestamp & Actions */}
+                  <div className="flex items-center gap-2 shrink-0 mb-1 relative">
+                    <span className="text-[10px] text-gray-500">
+                      {formatMessageDate(msg.timestamp)}
+                      {msg.isEdited && <span className="ml-1 italic opacity-70">(edited)</span>}
+                    </span>
+                    <div className="flex items-center gap-2 ml-1">
                       <button 
-                        onClick={() => toggleMute(msg.user)}
-                        className="text-gray-500 hover:text-red-400 transition-colors"
-                        title={`Mute ${msg.user}`}
+                        onClick={() => socket?.emit('toggleLike', { messageId: msg.id, user: username.trim() })}
+                        className={cn("flex items-center gap-1 transition-colors", msg.likes?.includes(username) ? "text-white" : "text-gray-500 hover:text-white")}
+                        title="Like message"
                       >
-                        <VolumeX size={12} />
+                        <Heart size={12} className={msg.likes?.includes(username) ? "fill-white" : ""} />
+                        {(msg.likes?.length || 0) > 0 && <span className="text-[10px] font-medium">{msg.likes?.length}</span>}
                       </button>
-                    )}
+                      
+                      <button 
+                        onClick={() => socket?.emit('toggleDislike', { messageId: msg.id, user: username.trim() })}
+                        className={cn("flex items-center gap-1 transition-colors", msg.dislikes?.includes(username) ? "text-red-500" : "text-gray-500 hover:text-red-400")}
+                        title="Dislike message"
+                      >
+                        <ThumbsDown size={12} className={msg.dislikes?.includes(username) ? "fill-current" : ""} />
+                        {(msg.dislikes?.length || 0) > 0 && <span className="text-[10px] font-medium">{msg.dislikes?.length}</span>}
+                      </button>
+                      
+                      <div className="relative">
+                        <button 
+                          onClick={() => setActiveReactionMessageId(activeReactionMessageId === msg.id ? null : msg.id)}
+                          className="text-gray-500 hover:text-white transition-colors"
+                          title="React"
+                        >
+                          <SmilePlus size={12} />
+                        </button>
+                        
+                        {activeReactionMessageId === msg.id && (
+                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 bg-gray-900 border border-gray-700 rounded-full py-1 px-2 flex gap-1 z-50 shadow-xl">
+                            {['👍', '❤️', '😂', '😲', '😢', '🔥'].map(emoji => (
+                              <button
+                                key={emoji}
+                                onClick={() => {
+                                  socket?.emit('toggleReaction', { messageId: msg.id, user: username.trim(), emoji });
+                                  setActiveReactionMessageId(null);
+                                }}
+                                className="hover:scale-125 transition-transform text-sm px-1"
+                              >
+                                {emoji}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      <button 
+                        onClick={() => handleReplyClick(msg)}
+                        className="text-gray-500 hover:text-white transition-colors"
+                        title="Reply to message"
+                      >
+                        <Reply size={12} />
+                      </button>
+                      {isOwnMessage ? (
+                        <>
+                          {canEdit && (
+                            <button 
+                              onClick={() => handleEditClick(msg)}
+                              className="text-gray-500 hover:text-white transition-colors"
+                              title="Edit message (within 15 mins)"
+                            >
+                              <Pencil size={12} />
+                            </button>
+                          )}
+                          <button 
+                            onClick={() => setMessageToDelete(msg.id)}
+                            className="text-gray-500 hover:text-red-400 transition-colors"
+                            title="Delete message"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </>
+                      ) : (
+                        <button 
+                          onClick={() => toggleMute(msg.user)}
+                          className="text-gray-500 hover:text-red-400 transition-colors"
+                          title={`Mute ${msg.user}`}
+                        >
+                          <VolumeX size={12} />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
+                
+                {/* Display Reactions */}
+                {msg.reactions && Object.keys(msg.reactions).length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-1 ml-4">
+                    {Object.entries(msg.reactions).map(([emoji, users]: [string, string[]]) => (
+                      <button
+                        key={emoji}
+                        onClick={() => socket?.emit('toggleReaction', { messageId: msg.id, user: username.trim(), emoji })}
+                        className={cn(
+                          "text-[10px] px-1.5 py-0.5 rounded-full border flex items-center gap-1 transition-colors",
+                          users.includes(username) 
+                            ? "bg-white/20 border-white/40 text-white" 
+                            : "bg-black/40 border-gray-700 text-gray-400 hover:border-gray-500"
+                        )}
+                        title={users.join(', ')}
+                      >
+                        <span>{emoji}</span>
+                        <span className="font-medium">{users.length}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             </motion.div>
             );

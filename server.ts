@@ -9,11 +9,14 @@ import mongoose from 'mongoose';
 const messageSchema = new mongoose.Schema({
   id: String,
   user: String,
+  icon: String,
   text: String,
   timestamp: { type: Number, index: true },
   type: { type: String, default: 'user' },
   isEdited: { type: Boolean, default: false },
   likes: { type: [String], default: [] },
+  dislikes: { type: [String], default: [] },
+  reactions: { type: Map, of: [String], default: {} },
   replyTo: {
     id: String,
     user: String,
@@ -54,10 +57,10 @@ async function startServer() {
   }
 
   // Server-side state for chat messages (Fallback if DB is not configured)
-  const messages: { id: string; user: string; text: string; timestamp: number; type?: string; isEdited?: boolean; likes?: string[]; replyTo?: { id: string; user: string; text: string } }[] = [];
+  const messages: { id: string; user: string; icon?: string; text: string; timestamp: number; type?: string; isEdited?: boolean; likes?: string[]; dislikes?: string[]; reactions?: Record<string, string[]>; replyTo?: { id: string; user: string; text: string } }[] = [];
   const MAX_MESSAGES = 200;
 
-  const connectedUsers = new Map<string, string>();
+  const connectedUsers = new Map<string, { username: string; icon: string }>();
   const rateLimits = new Map<string, number[]>();
 
   const broadcastUserCount = () => {
@@ -95,9 +98,13 @@ async function startServer() {
       recentTimestamps.push(now);
       rateLimits.set(socket.id, recentTimestamps);
 
+      const userInfo = connectedUsers.get(socket.id);
+      const icon = userInfo?.icon || 'User';
+
       const msg = {
         id: Math.random().toString(36).substring(2, 10),
         user: data.user || 'Anonymous',
+        icon: icon,
         text: data.text,
         timestamp: Date.now(),
         type: 'user',
@@ -139,15 +146,22 @@ async function startServer() {
           const msg = await MessageModel.findOne({ id: messageId });
           if (msg) {
             const likes = msg.likes || [];
+            const dislikes = msg.dislikes || [];
             const index = likes.indexOf(user);
             if (index === -1) {
               likes.push(user);
+              // Remove from dislikes if liking
+              const dislikeIndex = dislikes.indexOf(user);
+              if (dislikeIndex !== -1) {
+                dislikes.splice(dislikeIndex, 1);
+              }
             } else {
               likes.splice(index, 1);
             }
             msg.likes = likes;
+            msg.dislikes = dislikes;
             await msg.save();
-            io.emit('messageLiked', { id: messageId, likes: msg.likes });
+            io.emit('messageLiked', { id: messageId, likes: msg.likes, dislikes: msg.dislikes });
           }
         } catch (err) {
           console.error('Error toggling like in DB:', err);
@@ -156,13 +170,127 @@ async function startServer() {
         const msg = messages.find(m => m.id === messageId);
         if (msg) {
           msg.likes = msg.likes || [];
+          msg.dislikes = msg.dislikes || [];
           const index = msg.likes.indexOf(user);
           if (index === -1) {
             msg.likes.push(user);
+            // Remove from dislikes if liking
+            const dislikeIndex = msg.dislikes.indexOf(user);
+            if (dislikeIndex !== -1) {
+              msg.dislikes.splice(dislikeIndex, 1);
+            }
           } else {
             msg.likes.splice(index, 1);
           }
-          io.emit('messageLiked', { id: messageId, likes: msg.likes });
+          io.emit('messageLiked', { id: messageId, likes: msg.likes, dislikes: msg.dislikes });
+        }
+      }
+    });
+
+    // Handle disliking messages
+    socket.on('toggleDislike', async ({ messageId, user }) => {
+      if (!user) return;
+
+      if (useDatabase) {
+        try {
+          const msg = await MessageModel.findOne({ id: messageId });
+          if (msg) {
+            const dislikes = msg.dislikes || [];
+            const likes = msg.likes || [];
+            const index = dislikes.indexOf(user);
+            if (index === -1) {
+              dislikes.push(user);
+              // Remove from likes if disliking
+              const likeIndex = likes.indexOf(user);
+              if (likeIndex !== -1) {
+                likes.splice(likeIndex, 1);
+              }
+            } else {
+              dislikes.splice(index, 1);
+            }
+            msg.dislikes = dislikes;
+            msg.likes = likes;
+            await msg.save();
+            io.emit('messageDisliked', { id: messageId, dislikes: msg.dislikes, likes: msg.likes });
+          }
+        } catch (err) {
+          console.error('Error toggling dislike in DB:', err);
+        }
+      } else {
+        const msg = messages.find(m => m.id === messageId);
+        if (msg) {
+          msg.dislikes = msg.dislikes || [];
+          msg.likes = msg.likes || [];
+          const index = msg.dislikes.indexOf(user);
+          if (index === -1) {
+            msg.dislikes.push(user);
+            // Remove from likes if disliking
+            const likeIndex = msg.likes.indexOf(user);
+            if (likeIndex !== -1) {
+              msg.likes.splice(likeIndex, 1);
+            }
+          } else {
+            msg.dislikes.splice(index, 1);
+          }
+          io.emit('messageDisliked', { id: messageId, dislikes: msg.dislikes, likes: msg.likes });
+        }
+      }
+    });
+
+    // Handle reacting to messages
+    socket.on('toggleReaction', async ({ messageId, user, emoji }) => {
+      if (!user || !emoji) return;
+
+      if (useDatabase) {
+        try {
+          const msg = await MessageModel.findOne({ id: messageId });
+          if (msg) {
+            const reactions = msg.reactions || new Map();
+            const users = reactions.get(emoji) || [];
+            const index = users.indexOf(user);
+            
+            if (index === -1) {
+              users.push(user);
+            } else {
+              users.splice(index, 1);
+            }
+            
+            if (users.length === 0) {
+              reactions.delete(emoji);
+            } else {
+              reactions.set(emoji, users);
+            }
+            
+            msg.reactions = reactions;
+            await msg.save();
+            
+            // Convert Map to plain object for emission
+            const reactionsObj = Object.fromEntries(reactions);
+            io.emit('messageReacted', { id: messageId, reactions: reactionsObj });
+          }
+        } catch (err) {
+          console.error('Error toggling reaction in DB:', err);
+        }
+      } else {
+        const msg = messages.find(m => m.id === messageId);
+        if (msg) {
+          msg.reactions = msg.reactions || {};
+          const users = msg.reactions[emoji] || [];
+          const index = users.indexOf(user);
+          
+          if (index === -1) {
+            users.push(user);
+          } else {
+            users.splice(index, 1);
+          }
+          
+          if (users.length === 0) {
+            delete msg.reactions[emoji];
+          } else {
+            msg.reactions[emoji] = users;
+          }
+          
+          io.emit('messageReacted', { id: messageId, reactions: msg.reactions });
         }
       }
     });
@@ -176,8 +304,11 @@ async function startServer() {
       socket.broadcast.emit('stopTyping', username);
     });
 
-    socket.on('join', async (username) => {
-      connectedUsers.set(socket.id, username);
+    socket.on('join', async (data) => {
+      const username = typeof data === 'string' ? data : data.username;
+      const icon = typeof data === 'string' ? 'User' : data.icon;
+      
+      connectedUsers.set(socket.id, { username, icon });
       broadcastUserCount();
       
       const msg = {
@@ -210,8 +341,9 @@ async function startServer() {
 
     // Handle message edits
     socket.on('editMessage', async ({ id, newText }) => {
-      const username = connectedUsers.get(socket.id);
-      if (!username) return;
+      const userInfo = connectedUsers.get(socket.id);
+      if (!userInfo) return;
+      const username = userInfo.username;
 
       const timeLimit = 15 * 60 * 1000; // 15 minutes
       const now = Date.now();
@@ -240,8 +372,9 @@ async function startServer() {
 
     // Handle message deletions
     socket.on('deleteMessage', async (id) => {
-      const username = connectedUsers.get(socket.id);
-      if (!username) return;
+      const userInfo = connectedUsers.get(socket.id);
+      if (!userInfo) return;
+      const username = userInfo.username;
 
       if (useDatabase) {
         try {
@@ -265,8 +398,9 @@ async function startServer() {
     socket.on('disconnect', async () => {
       console.log('User disconnected:', socket.id);
       rateLimits.delete(socket.id);
-      const username = connectedUsers.get(socket.id);
-      if (username) {
+      const userInfo = connectedUsers.get(socket.id);
+      if (userInfo) {
+        const username = userInfo.username;
         connectedUsers.delete(socket.id);
         broadcastUserCount();
         const msg = {
