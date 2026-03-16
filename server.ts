@@ -12,7 +12,13 @@ const messageSchema = new mongoose.Schema({
   text: String,
   timestamp: { type: Number, index: true },
   type: { type: String, default: 'user' },
-  isEdited: { type: Boolean, default: false }
+  isEdited: { type: Boolean, default: false },
+  likes: { type: [String], default: [] },
+  replyTo: {
+    id: String,
+    user: String,
+    text: String
+  }
 });
 const MessageModel = mongoose.model('Message', messageSchema);
 
@@ -48,10 +54,11 @@ async function startServer() {
   }
 
   // Server-side state for chat messages (Fallback if DB is not configured)
-  const messages: { id: string; user: string; text: string; timestamp: number; type?: string; isEdited?: boolean }[] = [];
+  const messages: { id: string; user: string; text: string; timestamp: number; type?: string; isEdited?: boolean; likes?: string[]; replyTo?: { id: string; user: string; text: string } }[] = [];
   const MAX_MESSAGES = 200;
 
   const connectedUsers = new Map<string, string>();
+  const rateLimits = new Map<string, number[]>();
 
   const broadcastUserCount = () => {
     io.emit('userCount', connectedUsers.size);
@@ -76,12 +83,25 @@ async function startServer() {
 
     // Handle incoming messages
     socket.on('message', async (data) => {
+      const now = Date.now();
+      const userTimestamps = rateLimits.get(socket.id) || [];
+      const recentTimestamps = userTimestamps.filter(t => now - t < 10000); // last 10 seconds
+      
+      if (recentTimestamps.length >= 5) {
+        socket.emit('spamWarning', 'You are sending messages too fast. Please wait a moment.');
+        return;
+      }
+      
+      recentTimestamps.push(now);
+      rateLimits.set(socket.id, recentTimestamps);
+
       const msg = {
         id: Math.random().toString(36).substring(2, 10),
         user: data.user || 'Anonymous',
         text: data.text,
         timestamp: Date.now(),
-        type: 'user'
+        type: 'user',
+        replyTo: data.replyTo
       };
       
       if (useDatabase) {
@@ -108,6 +128,43 @@ async function startServer() {
 
       // Broadcast the message to all connected clients
       io.emit('message', msg);
+    });
+
+    // Handle liking messages
+    socket.on('toggleLike', async ({ messageId, user }) => {
+      if (!user) return;
+
+      if (useDatabase) {
+        try {
+          const msg = await MessageModel.findOne({ id: messageId });
+          if (msg) {
+            const likes = msg.likes || [];
+            const index = likes.indexOf(user);
+            if (index === -1) {
+              likes.push(user);
+            } else {
+              likes.splice(index, 1);
+            }
+            msg.likes = likes;
+            await msg.save();
+            io.emit('messageLiked', { id: messageId, likes: msg.likes });
+          }
+        } catch (err) {
+          console.error('Error toggling like in DB:', err);
+        }
+      } else {
+        const msg = messages.find(m => m.id === messageId);
+        if (msg) {
+          msg.likes = msg.likes || [];
+          const index = msg.likes.indexOf(user);
+          if (index === -1) {
+            msg.likes.push(user);
+          } else {
+            msg.likes.splice(index, 1);
+          }
+          io.emit('messageLiked', { id: messageId, likes: msg.likes });
+        }
+      }
     });
 
     // Handle typing events
@@ -207,6 +264,7 @@ async function startServer() {
 
     socket.on('disconnect', async () => {
       console.log('User disconnected:', socket.id);
+      rateLimits.delete(socket.id);
       const username = connectedUsers.get(socket.id);
       if (username) {
         connectedUsers.delete(socket.id);

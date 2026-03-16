@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { Send, LogOut, User, Headphones, Smile, UserCircle, UserSquare, Frown, Meh, Laugh, Angry, Annoyed, Ghost, Skull, Glasses, Heart, Bot, Cat, Dog, Star, Pencil, X, Trash2 } from 'lucide-react';
+import { Send, LogOut, User, Headphones, Smile, UserCircle, UserSquare, Frown, Meh, Laugh, Angry, Annoyed, Ghost, Skull, Glasses, Heart, Bot, Cat, Dog, Star, Pencil, X, Trash2, Reply, Zap, Sparkles, VolumeX, Volume2 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { motion } from 'motion/react';
@@ -16,6 +16,12 @@ interface Message {
   timestamp: number;
   type?: 'user' | 'system';
   isEdited?: boolean;
+  likes?: string[];
+  replyTo?: {
+    id: string;
+    user: string;
+    text: string;
+  };
 }
 
 const playNotificationSound = () => {
@@ -83,7 +89,10 @@ export default function App() {
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
   const [userCount, setUserCount] = useState<number>(0);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [replyingToMessage, setReplyingToMessage] = useState<Message | null>(null);
   const [messageToDelete, setMessageToDelete] = useState<string | null>(null);
+  const [mutedUsers, setMutedUsers] = useState<string[]>([]);
+  const [spamWarning, setSpamWarning] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -128,6 +137,15 @@ export default function App() {
 
       newSocket.on('messageDeleted', (id: string) => {
         setMessages((prev) => prev.filter(m => m.id !== id));
+      });
+
+      newSocket.on('messageLiked', ({ id, likes }: { id: string, likes: string[] }) => {
+        setMessages((prev) => prev.map(m => m.id === id ? { ...m, likes } : m));
+      });
+
+      newSocket.on('spamWarning', (warningMsg: string) => {
+        setSpamWarning(warningMsg);
+        setTimeout(() => setSpamWarning(null), 3000);
       });
 
       newSocket.on('typing', (user: string) => {
@@ -186,7 +204,13 @@ export default function App() {
       socket.emit('message', {
         user: username.trim(),
         text: inputValue.trim(),
+        replyTo: replyingToMessage ? {
+          id: replyingToMessage.id,
+          user: replyingToMessage.user,
+          text: replyingToMessage.text
+        } : undefined
       });
+      setReplyingToMessage(null);
     }
     
     setInputValue('');
@@ -215,12 +239,49 @@ export default function App() {
 
   const handleEditClick = (msg: Message) => {
     setEditingMessageId(msg.id);
+    setReplyingToMessage(null);
     setInputValue(msg.text);
+  };
+
+  const handleReplyClick = (msg: Message) => {
+    setReplyingToMessage(msg);
+    setEditingMessageId(null);
   };
 
   const cancelEdit = () => {
     setEditingMessageId(null);
     setInputValue('');
+  };
+
+  const cancelReply = () => {
+    setReplyingToMessage(null);
+  };
+
+  const getUserBadge = (targetUser: string) => {
+    let msgCount = 0;
+    let likesReceived = 0;
+    messages.forEach(m => {
+      if (m.user === targetUser && m.type !== 'system') {
+        msgCount++;
+        if (m.likes) likesReceived += m.likes.length;
+      }
+    });
+
+    if (likesReceived >= 3) {
+      return <Sparkles size={12} className="text-white/80" title="Highly Resonated" />;
+    }
+    if (msgCount >= 5) {
+      return <Zap size={12} className="text-white/60" title="Active Contributor" />;
+    }
+    return null;
+  };
+
+  const toggleMute = (targetUser: string) => {
+    setMutedUsers(prev => 
+      prev.includes(targetUser) 
+        ? prev.filter(u => u !== targetUser)
+        : [...prev, targetUser]
+    );
   };
 
   const handleLogout = () => {
@@ -381,14 +442,42 @@ export default function App() {
             const isOwnMessage = msg.user === username;
             const canEdit = isOwnMessage && (Date.now() - msg.timestamp < 15 * 60 * 1000);
 
+            if (mutedUsers.includes(msg.user)) {
+              return (
+                <div key={msg.id || idx} className="flex justify-center my-2">
+                  <span 
+                    onClick={() => toggleMute(msg.user)}
+                    className="text-[10px] text-gray-600 italic cursor-pointer hover:text-gray-400 transition-colors flex items-center gap-1"
+                    title="Click to unmute"
+                  >
+                    <VolumeX size={10} /> Message from muted user ({msg.user})
+                  </span>
+                </div>
+              );
+            }
+
             return (
-            <div key={msg.id || idx} className="flex items-start gap-4 group">
+            <motion.div 
+              key={msg.id || idx} 
+              className="flex items-start gap-4 group w-full"
+              drag="x"
+              dragConstraints={{ left: 0, right: 0 }}
+              dragElastic={{ left: 0, right: 0.2 }}
+              onDragEnd={(e, info) => {
+                if (info.offset.x > 50) {
+                  handleReplyClick(msg);
+                }
+              }}
+            >
               {/* Avatar */}
               <div className="flex flex-col items-center w-16 shrink-0">
                 <div className={cn("w-12 h-12 border-2 border-white flex items-center justify-center mb-1", getUserColor(msg.user))}>
                   {getUserIcon(msg.user)}
                 </div>
-                <span className="text-white text-xs truncate w-full text-center">{msg.user}</span>
+                <div className="flex items-center gap-1 w-full justify-center">
+                  <span className="text-white text-xs truncate text-center">{msg.user}</span>
+                  {getUserBadge(msg.user)}
+                </div>
               </div>
 
               {/* Message Bubble and Timestamp */}
@@ -398,7 +487,17 @@ export default function App() {
                   <div className={cn("absolute -left-2 top-3 w-4 h-4 border-t-2 border-l-2 border-white transform -rotate-45", getUserColor(msg.user))}></div>
                   
                   {/* Bubble */}
-                  <div className={cn("relative z-10 px-4 py-2 border-2 border-white rounded-xl text-white text-sm shadow-sm break-words", getUserColor(msg.user))}>
+                  <div className={cn(
+                    "relative z-10 px-4 py-2 border-2 rounded-xl text-white text-sm break-words transition-all duration-500", 
+                    getUserColor(msg.user),
+                    (msg.likes?.length || 0) >= 2 ? "border-white shadow-[0_0_15px_rgba(255,255,255,0.4)] bg-white/10" : "border-white shadow-sm"
+                  )}>
+                    {msg.replyTo && (
+                      <div className="mb-2 pl-2 border-l-2 border-white/50 text-xs text-white/70 bg-black/20 rounded-r p-1">
+                        <div className="font-bold text-white/90">@{msg.replyTo.user}</div>
+                        <div className="truncate">{msg.replyTo.text}</div>
+                      </div>
+                    )}
                     {msg.text}
                   </div>
                 </div>
@@ -408,29 +507,54 @@ export default function App() {
                     {formatMessageDate(msg.timestamp)}
                     {msg.isEdited && <span className="ml-1 italic opacity-70">(edited)</span>}
                   </span>
-                  {isOwnMessage && (
-                    <div className="flex items-center gap-2 ml-1">
-                      {canEdit && (
+                  <div className="flex items-center gap-2 ml-1">
+                    <button 
+                      onClick={() => socket?.emit('toggleLike', { messageId: msg.id, user: username.trim() })}
+                      className={cn("flex items-center gap-1 transition-colors", msg.likes?.includes(username) ? "text-white" : "text-gray-500 hover:text-white")}
+                      title="Like message"
+                    >
+                      <Heart size={12} className={msg.likes?.includes(username) ? "fill-white" : ""} />
+                      {(msg.likes?.length || 0) > 0 && <span className="text-[10px] font-medium">{msg.likes?.length}</span>}
+                    </button>
+                    <button 
+                      onClick={() => handleReplyClick(msg)}
+                      className="text-gray-500 hover:text-white transition-colors"
+                      title="Reply to message"
+                    >
+                      <Reply size={12} />
+                    </button>
+                    {isOwnMessage ? (
+                      <>
+                        {canEdit && (
+                          <button 
+                            onClick={() => handleEditClick(msg)}
+                            className="text-gray-500 hover:text-white transition-colors"
+                            title="Edit message (within 15 mins)"
+                          >
+                            <Pencil size={12} />
+                          </button>
+                        )}
                         <button 
-                          onClick={() => handleEditClick(msg)}
-                          className="text-gray-500 hover:text-white transition-colors"
-                          title="Edit message (within 15 mins)"
+                          onClick={() => setMessageToDelete(msg.id)}
+                          className="text-gray-500 hover:text-red-400 transition-colors"
+                          title="Delete message"
                         >
-                          <Pencil size={12} />
+                          <Trash2 size={12} />
                         </button>
-                      )}
+                      </>
+                    ) : (
                       <button 
-                        onClick={() => setMessageToDelete(msg.id)}
+                        onClick={() => toggleMute(msg.user)}
                         className="text-gray-500 hover:text-red-400 transition-colors"
-                        title="Delete message"
+                        title={`Mute ${msg.user}`}
                       >
-                        <Trash2 size={12} />
+                        <VolumeX size={12} />
                       </button>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
+            </motion.div>
             );
           })
         )}
@@ -449,13 +573,30 @@ export default function App() {
       )}
 
       {/* Input Area */}
-      <footer className="p-4 bg-black border-t border-gray-900">
+      <footer className="p-4 bg-black border-t border-gray-900 relative">
+        {spamWarning && (
+          <div className="absolute -top-10 left-0 right-0 flex justify-center pointer-events-none">
+            <div className="bg-red-500/90 text-white text-xs px-4 py-2 rounded-full shadow-lg">
+              {spamWarning}
+            </div>
+          </div>
+        )}
         {editingMessageId && (
           <div className="max-w-4xl mx-auto flex items-center justify-between mb-2 px-2">
             <span className="text-xs text-blue-400 flex items-center gap-1">
               <Pencil size={12} /> Editing message...
             </span>
             <button onClick={cancelEdit} className="text-xs text-gray-500 hover:text-white flex items-center gap-1">
+              <X size={12} /> Cancel
+            </button>
+          </div>
+        )}
+        {replyingToMessage && (
+          <div className="max-w-4xl mx-auto flex items-center justify-between mb-2 px-2">
+            <span className="text-xs text-gray-400 flex items-center gap-1 truncate">
+              <Reply size={12} /> Replying to <span className="text-white font-medium">@{replyingToMessage.user}</span>: <span className="truncate max-w-[200px] sm:max-w-md">{replyingToMessage.text}</span>
+            </span>
+            <button onClick={cancelReply} className="text-xs text-gray-500 hover:text-white flex items-center gap-1 shrink-0 ml-4">
               <X size={12} /> Cancel
             </button>
           </div>
