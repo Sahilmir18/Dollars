@@ -10,8 +10,9 @@ const messageSchema = new mongoose.Schema({
   id: String,
   user: String,
   text: String,
-  timestamp: Number,
-  type: { type: String, default: 'user' }
+  timestamp: { type: Number, index: true },
+  type: { type: String, default: 'user' },
+  isEdited: { type: Boolean, default: false }
 });
 const MessageModel = mongoose.model('Message', messageSchema);
 
@@ -36,6 +37,7 @@ async function startServer() {
     try {
       // Added a 5-second timeout so the server doesn't hang forever if blocked by a firewall
       await mongoose.connect(mongoConnectionString, { serverSelectionTimeoutMS: 5000 });
+      await MessageModel.createIndexes();
       console.log('Successfully connected to MongoDB');
       useDatabase = true;
     } catch (err) {
@@ -46,10 +48,14 @@ async function startServer() {
   }
 
   // Server-side state for chat messages (Fallback if DB is not configured)
-  const messages: { id: string; user: string; text: string; timestamp: number; type?: string }[] = [];
+  const messages: { id: string; user: string; text: string; timestamp: number; type?: string; isEdited?: boolean }[] = [];
   const MAX_MESSAGES = 200;
 
   const connectedUsers = new Map<string, string>();
+
+  const broadcastUserCount = () => {
+    io.emit('userCount', connectedUsers.size);
+  };
 
   io.on('connection', async (socket) => {
     console.log('User connected:', socket.id);
@@ -115,6 +121,7 @@ async function startServer() {
 
     socket.on('join', async (username) => {
       connectedUsers.set(socket.id, username);
+      broadcastUserCount();
       
       const msg = {
         id: Math.random().toString(36).substring(2, 10),
@@ -144,11 +151,42 @@ async function startServer() {
       io.emit('message', msg);
     });
 
+    // Handle message edits
+    socket.on('editMessage', async ({ id, newText }) => {
+      const username = connectedUsers.get(socket.id);
+      if (!username) return;
+
+      const timeLimit = 15 * 60 * 1000; // 15 minutes
+      const now = Date.now();
+
+      if (useDatabase) {
+        try {
+          const msg = await MessageModel.findOne({ id });
+          if (msg && msg.user === username && (now - msg.timestamp) < timeLimit) {
+            msg.text = newText;
+            msg.isEdited = true;
+            await msg.save();
+            io.emit('messageEdited', { id, newText });
+          }
+        } catch (err) {
+          console.error('Error editing message in DB:', err);
+        }
+      } else {
+        const msg = messages.find(m => m.id === id);
+        if (msg && msg.user === username && (now - msg.timestamp) < timeLimit) {
+          msg.text = newText;
+          msg.isEdited = true;
+          io.emit('messageEdited', { id, newText });
+        }
+      }
+    });
+
     socket.on('disconnect', async () => {
       console.log('User disconnected:', socket.id);
       const username = connectedUsers.get(socket.id);
       if (username) {
         connectedUsers.delete(socket.id);
+        broadcastUserCount();
         const msg = {
           id: Math.random().toString(36).substring(2, 10),
           user: 'System',

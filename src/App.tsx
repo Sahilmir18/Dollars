@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { Send, LogOut, User, Headphones, Smile, UserCircle, UserSquare, Frown, Meh, Laugh, Angry, Annoyed, Ghost, Skull, Glasses, Heart, Bot, Cat, Dog, Star } from 'lucide-react';
+import { Send, LogOut, User, Headphones, Smile, UserCircle, UserSquare, Frown, Meh, Laugh, Angry, Annoyed, Ghost, Skull, Glasses, Heart, Bot, Cat, Dog, Star, Pencil, X } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { motion } from 'motion/react';
@@ -15,7 +15,41 @@ interface Message {
   text: string;
   timestamp: number;
   type?: 'user' | 'system';
+  isEdited?: boolean;
 }
+
+const playNotificationSound = () => {
+  try {
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextClass) return;
+    const ctx = new AudioContextClass();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(880, ctx.currentTime); // A5 note
+    gain.gain.setValueAtTime(0.1, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.00001, ctx.currentTime + 0.1);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.1);
+  } catch (e) {
+    console.error('Audio play failed:', e);
+  }
+};
+
+const formatMessageDate = (timestamp: number) => {
+  const date = new Date(timestamp);
+  const today = new Date();
+  const isToday = date.getDate() === today.getDate() && 
+                  date.getMonth() === today.getMonth() && 
+                  date.getFullYear() === today.getFullYear();
+  
+  const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  if (isToday) return timeStr;
+  
+  return `${date.toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${timeStr}`;
+};
 
 const getUserColor = (username: string) => {
   const colors = [
@@ -47,6 +81,8 @@ export default function App() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
+  const [userCount, setUserCount] = useState<number>(0);
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -74,8 +110,19 @@ export default function App() {
         setMessages(history);
       });
 
+      newSocket.on('userCount', (count: number) => {
+        setUserCount(count);
+      });
+
       newSocket.on('message', (msg: Message) => {
         setMessages((prev) => [...prev, msg]);
+        if (msg.user !== username.trim() && msg.type !== 'system') {
+          playNotificationSound();
+        }
+      });
+
+      newSocket.on('messageEdited', ({ id, newText }: { id: string, newText: string }) => {
+        setMessages((prev) => prev.map(m => m.id === id ? { ...m, text: newText, isEdited: true } : m));
       });
 
       newSocket.on('typing', (user: string) => {
@@ -124,10 +171,18 @@ export default function App() {
     e.preventDefault();
     if (!inputValue.trim() || !socket) return;
 
-    socket.emit('message', {
-      user: username.trim(),
-      text: inputValue.trim(),
-    });
+    if (editingMessageId) {
+      socket.emit('editMessage', {
+        id: editingMessageId,
+        newText: inputValue.trim()
+      });
+      setEditingMessageId(null);
+    } else {
+      socket.emit('message', {
+        user: username.trim(),
+        text: inputValue.trim(),
+      });
+    }
     
     setInputValue('');
     
@@ -151,6 +206,16 @@ export default function App() {
         socket.emit('stopTyping', username.trim());
       }, 2000);
     }
+  };
+
+  const handleEditClick = (msg: Message) => {
+    setEditingMessageId(msg.id);
+    setInputValue(msg.text);
+  };
+
+  const cancelEdit = () => {
+    setEditingMessageId(null);
+    setInputValue('');
   };
 
   const handleLogout = () => {
@@ -270,15 +335,21 @@ export default function App() {
           <div className="w-4 h-4 bg-white rounded-full"></div>
           <h1 className="text-xl font-light text-white uppercase tracking-widest">ALIAS</h1>
         </div>
-        <button 
-          type="button"
-          onClick={handleLogout}
-          className="text-gray-500 hover:text-white transition-colors flex items-center gap-2 text-sm uppercase tracking-widest"
-          title="Disconnect"
-        >
-          <span className="hidden sm:inline">Exit</span>
-          <LogOut size={18} />
-        </button>
+        <div className="flex items-center gap-6">
+          <div className="flex items-center gap-2 text-xs text-gray-400 uppercase tracking-widest">
+            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+            {userCount} Online
+          </div>
+          <button 
+            type="button"
+            onClick={handleLogout}
+            className="text-gray-500 hover:text-white transition-colors flex items-center gap-2 text-sm uppercase tracking-widest"
+            title="Disconnect"
+          >
+            <span className="hidden sm:inline">Exit</span>
+            <LogOut size={18} />
+          </button>
+        </div>
       </header>
 
       {/* Chat Area */}
@@ -295,14 +366,18 @@ export default function App() {
                   <span className="text-xs text-gray-500 italic bg-gray-900/50 px-4 py-1.5 rounded-full flex items-center gap-2">
                     {msg.text}
                     <span className="text-[10px] text-gray-600">
-                      {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      {formatMessageDate(msg.timestamp)}
                     </span>
                   </span>
                 </div>
               );
             }
+
+            const isOwnMessage = msg.user === username;
+            const canEdit = isOwnMessage && (Date.now() - msg.timestamp < 15 * 60 * 1000);
+
             return (
-            <div key={msg.id || idx} className="flex items-start gap-4">
+            <div key={msg.id || idx} className="flex items-start gap-4 group">
               {/* Avatar */}
               <div className="flex flex-col items-center w-16 shrink-0">
                 <div className={cn("w-12 h-12 border-2 border-white flex items-center justify-center mb-1", getUserColor(msg.user))}>
@@ -322,10 +397,22 @@ export default function App() {
                     {msg.text}
                   </div>
                 </div>
-                {/* Timestamp */}
-                <span className="text-[10px] text-gray-500 shrink-0 mb-1">
-                  {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </span>
+                {/* Timestamp & Actions */}
+                <div className="flex items-center gap-2 shrink-0 mb-1">
+                  <span className="text-[10px] text-gray-500">
+                    {formatMessageDate(msg.timestamp)}
+                    {msg.isEdited && <span className="ml-1 italic opacity-70">(edited)</span>}
+                  </span>
+                  {canEdit && (
+                    <button 
+                      onClick={() => handleEditClick(msg)}
+                      className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-white transition-opacity"
+                      title="Edit message (within 15 mins)"
+                    >
+                      <Pencil size={12} />
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
             );
@@ -347,13 +434,23 @@ export default function App() {
 
       {/* Input Area */}
       <footer className="p-4 bg-black border-t border-gray-900">
+        {editingMessageId && (
+          <div className="max-w-4xl mx-auto flex items-center justify-between mb-2 px-2">
+            <span className="text-xs text-blue-400 flex items-center gap-1">
+              <Pencil size={12} /> Editing message...
+            </span>
+            <button onClick={cancelEdit} className="text-xs text-gray-500 hover:text-white flex items-center gap-1">
+              <X size={12} /> Cancel
+            </button>
+          </div>
+        )}
         <form onSubmit={handleSendMessage} className="max-w-4xl mx-auto flex gap-4 items-center">
           <input
             type="text"
             value={inputValue}
             onChange={handleInputChange}
             className="flex-1 bg-transparent border-b border-gray-700 focus:border-white outline-none py-3 text-white transition-colors text-base"
-            placeholder="Type a message..."
+            placeholder={editingMessageId ? "Edit your message..." : "Type a message..."}
             autoFocus
             maxLength={500}
           />
