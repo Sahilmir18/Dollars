@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { Send, LogOut, User, Headphones, Smile, UserCircle, UserSquare, Frown, Meh, Laugh, Angry, Annoyed, Ghost, Skull, Glasses, Heart, Bot, Cat, Dog, Star, Pencil, X } from 'lucide-react';
+import { Send, LogOut, User, Headphones, Smile, UserCircle, UserSquare, Frown, Meh, Laugh, Angry, Annoyed, Ghost, Skull, Glasses, Heart, Bot, Cat, Dog, Star, Pencil, X, Trash2 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { motion } from 'motion/react';
@@ -83,6 +83,7 @@ export default function App() {
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
   const [userCount, setUserCount] = useState<number>(0);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [messageToDelete, setMessageToDelete] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -123,6 +124,10 @@ export default function App() {
 
       newSocket.on('messageEdited', ({ id, newText }: { id: string, newText: string }) => {
         setMessages((prev) => prev.map(m => m.id === id ? { ...m, text: newText, isEdited: true } : m));
+      });
+
+      newSocket.on('messageDeleted', (id: string) => {
+        setMessages((prev) => prev.filter(m => m.id !== id));
       });
 
       newSocket.on('typing', (user: string) => {
@@ -403,14 +408,25 @@ export default function App() {
                     {formatMessageDate(msg.timestamp)}
                     {msg.isEdited && <span className="ml-1 italic opacity-70">(edited)</span>}
                   </span>
-                  {canEdit && (
-                    <button 
-                      onClick={() => handleEditClick(msg)}
-                      className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-white transition-opacity"
-                      title="Edit message (within 15 mins)"
-                    >
-                      <Pencil size={12} />
-                    </button>
+                  {isOwnMessage && (
+                    <div className="flex items-center gap-2 ml-1">
+                      {canEdit && (
+                        <button 
+                          onClick={() => handleEditClick(msg)}
+                          className="text-gray-500 hover:text-white transition-colors"
+                          title="Edit message (within 15 mins)"
+                        >
+                          <Pencil size={12} />
+                        </button>
+                      )}
+                      <button 
+                        onClick={() => setMessageToDelete(msg.id)}
+                        className="text-gray-500 hover:text-red-400 transition-colors"
+                        title="Delete message"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>
@@ -463,6 +479,39 @@ export default function App() {
           </button>
         </form>
       </footer>
+
+      {/* Delete Confirmation Modal */}
+      {messageToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-4">
+          <motion.div 
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-gray-900 border border-gray-800 p-6 rounded-xl max-w-sm w-full"
+          >
+            <h3 className="text-white text-lg font-medium mb-2">Delete Message?</h3>
+            <p className="text-gray-400 text-sm mb-6">This action cannot be undone. The message will be permanently removed for everyone.</p>
+            <div className="flex justify-end gap-3">
+              <button 
+                onClick={() => setMessageToDelete(null)}
+                className="px-4 py-2 text-sm text-gray-300 hover:text-white transition-colors"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={() => {
+                  if (socket && messageToDelete) {
+                    socket.emit('deleteMessage', messageToDelete);
+                    setMessageToDelete(null);
+                  }
+                }}
+                className="px-4 py-2 text-sm bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-lg transition-colors"
+              >
+                Delete
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 }

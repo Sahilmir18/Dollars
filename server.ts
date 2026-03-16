@@ -181,6 +181,30 @@ async function startServer() {
       }
     });
 
+    // Handle message deletions
+    socket.on('deleteMessage', async (id) => {
+      const username = connectedUsers.get(socket.id);
+      if (!username) return;
+
+      if (useDatabase) {
+        try {
+          const msg = await MessageModel.findOne({ id });
+          if (msg && msg.user === username) {
+            await MessageModel.deleteOne({ id });
+            io.emit('messageDeleted', id);
+          }
+        } catch (err) {
+          console.error('Error deleting message in DB:', err);
+        }
+      } else {
+        const index = messages.findIndex(m => m.id === id);
+        if (index !== -1 && messages[index].user === username) {
+          messages.splice(index, 1);
+          io.emit('messageDeleted', id);
+        }
+      }
+    });
+
     socket.on('disconnect', async () => {
       console.log('User disconnected:', socket.id);
       const username = connectedUsers.get(socket.id);
