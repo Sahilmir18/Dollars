@@ -418,7 +418,6 @@ export default function App() {
                 placeholder="Enter password..."
                 autoFocus
               />
-              <p className="text-xs text-gray-600 mt-1">Hint: The password is "cutmyfeet"</p>
             </div>
 
             <div>
