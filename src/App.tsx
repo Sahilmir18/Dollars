@@ -460,7 +460,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-black text-gray-300 font-sans flex flex-col">
+    <div className="h-[100dvh] bg-black text-gray-300 font-sans flex flex-col overflow-hidden">
       {/* Header */}
       <header className="flex justify-between items-center p-4 border-b border-gray-900 bg-black shrink-0">
         <div className="flex items-center gap-2">
