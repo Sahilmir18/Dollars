@@ -354,14 +354,6 @@ export default function App() {
               </motion.h1>
             </div>
             <motion.p 
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.8, delay: 1 }}
-              className="text-gray-500 tracking-widest uppercase text-[10px]"
-            >
-              Anonymous Chat Network
-            </motion.p>
-            <motion.p 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ duration: 0.8, delay: 1.4 }}
@@ -698,12 +690,8 @@ export default function App() {
 
       {/* Typing Indicator */}
       {typingUsers.length > 0 && (
-        <div className="px-6 py-3 text-sm text-gray-400 italic bg-black border-t border-gray-900">
-          {typingUsers.length === 1
-            ? `${typingUsers[0]} is typing...`
-            : typingUsers.length === 2
-            ? `${typingUsers[0]} and ${typingUsers[1]} are typing...`
-            : `${typingUsers.length} people are typing...`}
+        <div className="px-6 py-3 text-sm text-gray-500 font-mono bg-black border-t border-gray-900 flex items-center gap-2">
+          <span className="animate-pulse">&gt; someone is typing...</span>
         </div>
       )}
 
