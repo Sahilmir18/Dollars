@@ -131,13 +131,27 @@ export default function App() {
       // Connect to the same host that serves the app
       const newSocket = io(window.location.origin);
       
-      newSocket.on('connect', () => {
+      const handleConnect = () => {
         console.log('Connected to server');
         newSocket.emit('join', { username: username.trim(), icon: selectedIcon });
-      });
+      };
+
+      newSocket.on('connect', handleConnect);
+      
+      if (newSocket.connected) {
+        handleConnect();
+      }
 
       newSocket.on('init', (history: Message[]) => {
-        setMessages(history);
+        setMessages((prev) => {
+          const newMessages = [...history];
+          prev.forEach(msg => {
+            if (!newMessages.find(m => m.id === msg.id)) {
+              newMessages.push(msg);
+            }
+          });
+          return newMessages.sort((a, b) => a.timestamp - b.timestamp);
+        });
       });
 
       newSocket.on('userCount', (count: number) => {

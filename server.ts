@@ -67,22 +67,25 @@ async function startServer() {
     io.emit('userCount', connectedUsers.size);
   };
 
-  io.on('connection', async (socket) => {
+  io.on('connection', (socket) => {
     console.log('User connected:', socket.id);
 
     // Send existing message history to the newly connected client
-    if (useDatabase) {
-      try {
-        const history = await MessageModel.find().sort({ timestamp: -1 }).limit(MAX_MESSAGES);
-        // Reverse to show oldest first in the UI
-        socket.emit('init', history.reverse());
-      } catch (err) {
-        console.error('Error fetching history from DB:', err);
-        socket.emit('init', []);
+    const sendHistory = async () => {
+      if (useDatabase) {
+        try {
+          const history = await MessageModel.find().sort({ timestamp: -1 }).limit(MAX_MESSAGES);
+          // Reverse to show oldest first in the UI
+          socket.emit('init', history.reverse());
+        } catch (err) {
+          console.error('Error fetching history from DB:', err);
+          socket.emit('init', []);
+        }
+      } else {
+        socket.emit('init', messages);
       }
-    } else {
-      socket.emit('init', messages);
-    }
+    };
+    sendHistory();
 
     // Handle incoming messages
     socket.on('message', async (data) => {
