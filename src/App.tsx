@@ -3,7 +3,7 @@ import { io, Socket } from 'socket.io-client';
 import { Send, LogOut, User, Headphones, Smile, UserCircle, UserSquare, Frown, Meh, Laugh, Angry, Annoyed, Ghost, Skull, Glasses, Heart, Bot, Cat, Dog, Star, Pencil, X, Trash2, Reply, Zap, Sparkles, VolumeX, Volume2, SmilePlus, ThumbsDown, Eraser } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -374,7 +374,9 @@ export default function App() {
               {AVAILABLE_ICONS.map((iconName) => {
                 const isSelected = selectedIcon === iconName;
                 return (
-                  <button
+                  <motion.button
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.9 }}
                     key={iconName}
                     type="button"
                     onClick={() => setSelectedIcon(iconName)}
@@ -386,7 +388,7 @@ export default function App() {
                     )}
                   >
                     {getUserIcon(iconName)}
-                  </button>
+                  </motion.button>
                 );
               })}
             </div>
@@ -427,7 +429,9 @@ export default function App() {
 
             {error && <p className="text-red-500 text-sm">{error}</p>}
 
-            <button
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
               type="submit"
               disabled={isLoggingIn}
               className="w-full border border-gray-700 hover:bg-white hover:text-black transition-colors py-3 uppercase tracking-widest text-sm font-bold mt-8 flex justify-center items-center disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-white"
@@ -443,7 +447,7 @@ export default function App() {
               ) : (
                 'Enter'
               )}
-            </button>
+            </motion.button>
           </motion.form>
         </div>
       </div>
@@ -463,7 +467,9 @@ export default function App() {
             <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
             {userCount} Online
           </div>
-          <button 
+          <motion.button 
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
             type="button"
             onClick={handleClearChat}
             className="text-gray-500 hover:text-white transition-colors flex items-center gap-2 text-sm uppercase tracking-widest mr-4"
@@ -471,8 +477,10 @@ export default function App() {
           >
             <span className="hidden sm:inline">Clear</span>
             <Eraser size={18} />
-          </button>
-          <button 
+          </motion.button>
+          <motion.button 
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
             type="button"
             onClick={handleLogout}
             className="text-gray-500 hover:text-white transition-colors flex items-center gap-2 text-sm uppercase tracking-widest"
@@ -480,7 +488,7 @@ export default function App() {
           >
             <span className="hidden sm:inline">Exit</span>
             <LogOut size={18} />
-          </button>
+          </motion.button>
         </div>
       </header>
 
@@ -491,42 +499,66 @@ export default function App() {
             No messages yet. Be the first to speak.
           </div>
         ) : (
-          messages.map((msg, idx) => {
-            if (msg.type === 'system') {
-              return (
-                <div key={msg.id || idx} className="flex justify-center my-4">
-                  <span className="text-xs text-gray-500 italic bg-gray-900/50 px-4 py-1.5 rounded-full flex items-center gap-2">
-                    {msg.text}
-                    <span className="text-[10px] text-gray-600">
-                      {formatMessageDate(msg.timestamp)}
-                    </span>
-                  </span>
-                </div>
-              );
-            }
-
-            const isOwnMessage = msg.user === username;
-            const canEdit = isOwnMessage && (Date.now() - msg.timestamp < 15 * 60 * 1000);
-
-            if (mutedUsers.includes(msg.user)) {
-              return (
-                <div key={msg.id || idx} className="flex justify-center my-2">
-                  <span 
-                    onClick={() => toggleMute(msg.user)}
-                    className="text-[10px] text-gray-600 italic cursor-pointer hover:text-gray-400 transition-colors flex items-center gap-1"
-                    title="Click to unmute"
+          <AnimatePresence initial={false}>
+            {messages.map((msg, idx) => {
+              if (msg.type === 'system') {
+                return (
+                  <motion.div 
+                    key={msg.id || idx} 
+                    layout
+                    initial={{ opacity: 0, filter: 'blur(4px)' }}
+                    animate={{ opacity: 1, filter: 'blur(0px)' }}
+                    exit={{ opacity: 0, filter: 'blur(4px)' }}
+                    className="flex justify-center my-4"
                   >
-                    <VolumeX size={10} /> Message from muted user ({msg.user})
-                  </span>
-                </div>
-              );
-            }
+                    <span className="text-xs text-gray-500 italic bg-gray-900/50 px-4 py-1.5 rounded-full flex items-center gap-2">
+                      {msg.text}
+                      <span className="text-[10px] text-gray-600">
+                        {formatMessageDate(msg.timestamp)}
+                      </span>
+                    </span>
+                  </motion.div>
+                );
+              }
 
-            return (
-            <motion.div 
-              key={msg.id || idx} 
-              className="flex items-start gap-4 group w-full"
-              drag="x"
+              const isOwnMessage = msg.user === username;
+              const canEdit = isOwnMessage && (Date.now() - msg.timestamp < 15 * 60 * 1000);
+
+              if (mutedUsers.includes(msg.user)) {
+                return (
+                  <motion.div 
+                    key={msg.id || idx} 
+                    layout
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="flex justify-center my-2"
+                  >
+                    <span 
+                      onClick={() => toggleMute(msg.user)}
+                      className="text-[10px] text-gray-600 italic cursor-pointer hover:text-gray-400 transition-colors flex items-center gap-1"
+                      title="Click to unmute"
+                    >
+                      <VolumeX size={10} /> Message from muted user ({msg.user})
+                    </span>
+                  </motion.div>
+                );
+              }
+
+              return (
+              <motion.div 
+                key={msg.id || idx} 
+                layout
+                initial={{ opacity: 0, filter: 'blur(4px)', y: 10 }}
+                animate={{ 
+                  opacity: (editingMessageId && editingMessageId !== msg.id) || (replyingToMessage && replyingToMessage.id !== msg.id) ? 0.3 : 1, 
+                  filter: (editingMessageId && editingMessageId !== msg.id) || (replyingToMessage && replyingToMessage.id !== msg.id) ? 'blur(2px)' : 'blur(0px)', 
+                  y: 0 
+                }}
+                exit={{ opacity: 0, filter: 'blur(4px)', scale: 0.95 }}
+                transition={{ duration: 0.4, ease: 'easeOut' }}
+                className="flex items-start gap-4 group w-full"
+                drag="x"
               dragConstraints={{ left: 0, right: 0 }}
               dragElastic={{ left: 0, right: 0.2 }}
               onDragEnd={(e, info) => {
@@ -575,85 +607,101 @@ export default function App() {
                       {msg.isEdited && <span className="ml-1 italic opacity-70">(edited)</span>}
                     </span>
                     <div className="flex items-center gap-2 ml-1">
-                      <button 
+                      <motion.button 
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.9 }}
                         onClick={() => socket?.emit('toggleLike', { messageId: msg.id, user: username.trim() })}
                         className={cn("flex items-center gap-1 transition-colors", msg.likes?.includes(username) ? "text-white" : "text-gray-500 hover:text-white")}
                         title="Like message"
                       >
                         <Heart size={12} className={msg.likes?.includes(username) ? "fill-white" : ""} />
                         {(msg.likes?.length || 0) > 0 && <span className="text-[10px] font-medium">{msg.likes?.length}</span>}
-                      </button>
+                      </motion.button>
                       
-                      <button 
+                      <motion.button 
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.9 }}
                         onClick={() => socket?.emit('toggleDislike', { messageId: msg.id, user: username.trim() })}
                         className={cn("flex items-center gap-1 transition-colors", msg.dislikes?.includes(username) ? "text-red-500" : "text-gray-500 hover:text-red-400")}
                         title="Dislike message"
                       >
                         <ThumbsDown size={12} className={msg.dislikes?.includes(username) ? "fill-current" : ""} />
                         {(msg.dislikes?.length || 0) > 0 && <span className="text-[10px] font-medium">{msg.dislikes?.length}</span>}
-                      </button>
+                      </motion.button>
                       
                       <div className="relative">
-                        <button 
+                        <motion.button 
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.9 }}
                           onClick={() => setActiveReactionMessageId(activeReactionMessageId === msg.id ? null : msg.id)}
                           className="text-gray-500 hover:text-white transition-colors"
                           title="React"
                         >
                           <SmilePlus size={12} />
-                        </button>
+                        </motion.button>
                         
                         {activeReactionMessageId === msg.id && (
                           <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 bg-gray-900 border border-gray-700 rounded-full py-1 px-2 flex gap-1 z-50 shadow-xl">
                             {['👍', '❤️', '😂', '😲', '😢', '🔥'].map(emoji => (
-                              <button
+                              <motion.button
+                                whileHover={{ scale: 1.2 }}
+                                whileTap={{ scale: 0.9 }}
                                 key={emoji}
                                 onClick={() => {
                                   socket?.emit('toggleReaction', { messageId: msg.id, user: username.trim(), emoji });
                                   setActiveReactionMessageId(null);
                                 }}
-                                className="hover:scale-125 transition-transform text-sm px-1"
+                                className="transition-transform text-sm px-1"
                               >
                                 {emoji}
-                              </button>
+                              </motion.button>
                             ))}
                           </div>
                         )}
                       </div>
 
-                      <button 
+                      <motion.button 
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.9 }}
                         onClick={() => handleReplyClick(msg)}
                         className="text-gray-500 hover:text-white transition-colors"
                         title="Reply to message"
                       >
                         <Reply size={12} />
-                      </button>
+                      </motion.button>
                       {isOwnMessage ? (
                         <>
                           {canEdit && (
-                            <button 
+                            <motion.button 
+                              whileHover={{ scale: 1.1 }}
+                              whileTap={{ scale: 0.9 }}
                               onClick={() => handleEditClick(msg)}
                               className="text-gray-500 hover:text-white transition-colors"
                               title="Edit message (within 15 mins)"
                             >
                               <Pencil size={12} />
-                            </button>
+                            </motion.button>
                           )}
-                          <button 
+                          <motion.button 
+                            whileHover={{ scale: 1.1 }}
+                            whileTap={{ scale: 0.9 }}
                             onClick={() => setMessageToDelete(msg.id)}
                             className="text-gray-500 hover:text-red-400 transition-colors"
                             title="Delete message"
                           >
                             <Trash2 size={12} />
-                          </button>
+                          </motion.button>
                         </>
                       ) : (
-                        <button 
+                        <motion.button 
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.9 }}
                           onClick={() => toggleMute(msg.user)}
                           className="text-gray-500 hover:text-red-400 transition-colors"
                           title={`Mute ${msg.user}`}
                         >
                           <VolumeX size={12} />
-                        </button>
+                        </motion.button>
                       )}
                     </div>
                   </div>
@@ -663,7 +711,9 @@ export default function App() {
                 {msg.reactions && Object.keys(msg.reactions).length > 0 && (
                   <div className="flex flex-wrap gap-1 mt-1 ml-4">
                     {Object.entries(msg.reactions).map(([emoji, users]: [string, string[]]) => (
-                      <button
+                      <motion.button
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
                         key={emoji}
                         onClick={() => socket?.emit('toggleReaction', { messageId: msg.id, user: username.trim(), emoji })}
                         className={cn(
@@ -676,24 +726,37 @@ export default function App() {
                       >
                         <span>{emoji}</span>
                         <span className="font-medium">{users.length}</span>
-                      </button>
+                      </motion.button>
                     ))}
                   </div>
                 )}
               </div>
             </motion.div>
             );
-          })
+          })}
+          </AnimatePresence>
         )}
         <div ref={messagesEndRef} />
       </main>
 
       {/* Typing Indicator */}
-      {typingUsers.length > 0 && (
-        <div className="px-6 py-3 text-sm text-gray-500 font-mono bg-black border-t border-gray-900 flex items-center gap-2">
-          <span className="animate-pulse">&gt; someone is typing...</span>
-        </div>
-      )}
+      <AnimatePresence>
+        {typingUsers.length > 0 && (
+          <motion.div 
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="px-6 py-3 text-xs text-gray-500 uppercase tracking-widest bg-black border-t border-gray-900 flex items-center gap-2 overflow-hidden"
+          >
+            <span>Someone is typing</span>
+            <motion.span 
+              animate={{ opacity: [0.2, 1, 0.2] }} 
+              transition={{ repeat: Infinity, duration: 1.5, ease: "easeInOut" }}
+              className="w-2 h-2 bg-white inline-block"
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Input Area */}
       <footer className="p-4 bg-black border-t border-gray-900 relative">
@@ -734,13 +797,15 @@ export default function App() {
             autoFocus
             maxLength={500}
           />
-          <button
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
             type="submit"
             disabled={!inputValue.trim()}
             className="text-gray-500 hover:text-white disabled:opacity-50 disabled:hover:text-gray-500 transition-colors px-2"
           >
             <Send size={24} />
-          </button>
+          </motion.button>
         </form>
       </footer>
 
@@ -755,13 +820,17 @@ export default function App() {
             <h3 className="text-white text-lg font-medium mb-2">Delete Message?</h3>
             <p className="text-gray-400 text-sm mb-6">This action cannot be undone. The message will be permanently removed for everyone.</p>
             <div className="flex justify-end gap-3">
-              <button 
+              <motion.button 
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
                 onClick={() => setMessageToDelete(null)}
                 className="px-4 py-2 text-sm text-gray-300 hover:text-white transition-colors"
               >
                 Cancel
-              </button>
-              <button 
+              </motion.button>
+              <motion.button 
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
                 onClick={() => {
                   if (socket && messageToDelete) {
                     socket.emit('deleteMessage', messageToDelete);
@@ -771,7 +840,7 @@ export default function App() {
                 className="px-4 py-2 text-sm bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-lg transition-colors"
               >
                 Delete
-              </button>
+              </motion.button>
             </div>
           </motion.div>
         </div>
