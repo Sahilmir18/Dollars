@@ -4,6 +4,7 @@ import { Server } from 'socket.io';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import mongoose from 'mongoose';
+import { GoogleGenAI } from '@google/genai';
 
 // Define Mongoose Schema for Messages
 const messageSchema = new mongoose.Schema({
@@ -64,8 +65,15 @@ async function startServer() {
   const rateLimits = new Map<string, number[]>();
 
   const broadcastUserCount = () => {
-    io.emit('userCount', connectedUsers.size);
+    // Add 1 to the connected users size to account for the "Ghost Bot"
+    io.emit('userCount', connectedUsers.size + 1);
   };
+
+  // Ghost Bot Setup
+  const ai = process.env.GEMINI_API_KEY ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }) : null;
+  const BOT_NAME = 'anon';
+  const BOT_ICON = 'Ghost';
+  let isBotTyping = false;
 
   io.on('connection', (socket) => {
     console.log('User connected:', socket.id);
@@ -138,6 +146,107 @@ async function startServer() {
 
       // Broadcast the message to all connected clients
       io.emit('message', msg);
+
+      // Ghost Bot Reply Logic
+      if (ai && msg.user !== BOT_NAME && msg.type === 'user' && !isBotTyping) {
+        const isMentioned = msg.text.toLowerCase().includes(BOT_NAME);
+        // If few people are online, the bot is more chatty. If many, it's quieter.
+        const replyChance = connectedUsers.size <= 2 ? 0.6 : 0.15;
+        
+        if (isMentioned || Math.random() < replyChance) {
+          isBotTyping = true;
+          
+          setTimeout(async () => {
+            try {
+              let recentHistory = [];
+              if (useDatabase) {
+                recentHistory = await MessageModel.find().sort({ timestamp: -1 }).limit(10);
+                recentHistory = recentHistory.reverse();
+              } else {
+                recentHistory = messages.slice(-10);
+              }
+              
+              const historyText = recentHistory.map(m => `${m.user}: ${m.text}`).join('\n');
+              
+              io.emit('typing', BOT_NAME);
+              
+              const prompt = `You are an anonymous college student in a secret chatroom called ALIAS. You are NOT an AI. You are a real person. Keep your messages short, casual, all lowercase, maybe a typo or two. Be mysterious, slightly bored, or curious. Do not reveal you are a bot. Do not be overly helpful. Just chat like a normal, slightly edgy college student.
+              
+Recent chat history:
+${historyText}
+
+Respond to the last message. Keep it under 15 words.`;
+
+              const response = await ai.models.generateContent({
+                model: 'gemini-3.1-flash-lite-preview',
+                contents: prompt,
+              });
+              
+              const botText = response.text?.trim() || '...';
+              
+              // Simulate typing delay based on length
+              const typingDelay = Math.min(Math.max(botText.length * 50, 1000), 4000);
+              
+              setTimeout(async () => {
+                io.emit('stopTyping', BOT_NAME);
+                isBotTyping = false;
+                
+                const botMsg = {
+                  id: Math.random().toString(36).substring(2, 10),
+                  user: BOT_NAME,
+                  icon: BOT_ICON,
+                  text: botText,
+                  timestamp: Date.now(),
+                  type: 'user'
+                };
+                
+                if (useDatabase) {
+                  await MessageModel.create(botMsg);
+                } else {
+                  messages.push(botMsg);
+                  if (messages.length > MAX_MESSAGES) messages.shift();
+                }
+                
+                io.emit('message', botMsg);
+              }, typingDelay);
+              
+            } catch (err: any) {
+              if (err?.message?.includes('API key not valid')) {
+                console.warn('Bot API key invalid, using fallback reply.');
+              } else {
+                console.error('Bot error:', err);
+              }
+              
+              // Fallback response
+              const fallbacks = ['...', 'interesting', 'why?', 'im bored', 'sure', 'idk', 'maybe', 'who knows'];
+              const botText = fallbacks[Math.floor(Math.random() * fallbacks.length)];
+              
+              setTimeout(async () => {
+                io.emit('stopTyping', BOT_NAME);
+                isBotTyping = false;
+                
+                const botMsg = {
+                  id: Math.random().toString(36).substring(2, 10),
+                  user: BOT_NAME,
+                  icon: BOT_ICON,
+                  text: botText,
+                  timestamp: Date.now(),
+                  type: 'user'
+                };
+                
+                if (useDatabase) {
+                  await MessageModel.create(botMsg);
+                } else {
+                  messages.push(botMsg);
+                  if (messages.length > MAX_MESSAGES) messages.shift();
+                }
+                
+                io.emit('message', botMsg);
+              }, 2000);
+            }
+          }, 2000); // Initial delay before starting to type
+        }
+      }
     });
 
     // Handle liking messages
@@ -340,6 +449,84 @@ async function startServer() {
       }
       
       io.emit('message', msg);
+
+      // Ghost Bot Greeting Logic
+      if (ai && connectedUsers.size <= 3 && !isBotTyping && username !== BOT_NAME) {
+        setTimeout(async () => {
+          // 70% chance to greet if it's quiet
+          if (Math.random() < 0.7) {
+            isBotTyping = true;
+            io.emit('typing', BOT_NAME);
+            
+            const prompt = `You are an anonymous college student in a secret chatroom called ALIAS. A new user named "${username}" just joined. Say something short, mysterious, or casual to them. All lowercase. Under 10 words. Do not reveal you are a bot.`;
+            
+            try {
+              const response = await ai.models.generateContent({
+                model: 'gemini-3.1-flash-lite-preview',
+                contents: prompt,
+              });
+              
+              const botText = response.text?.trim() || 'who goes there';
+              
+              setTimeout(async () => {
+                io.emit('stopTyping', BOT_NAME);
+                isBotTyping = false;
+                
+                const botMsg = {
+                  id: Math.random().toString(36).substring(2, 10),
+                  user: BOT_NAME,
+                  icon: BOT_ICON,
+                  text: botText,
+                  timestamp: Date.now(),
+                  type: 'user'
+                };
+                
+                if (useDatabase) {
+                  await MessageModel.create(botMsg);
+                } else {
+                  messages.push(botMsg);
+                  if (messages.length > MAX_MESSAGES) messages.shift();
+                }
+                
+                io.emit('message', botMsg);
+              }, 2000);
+            } catch (e: any) {
+              if (e?.message?.includes('API key not valid')) {
+                console.warn('Bot API key invalid, using fallback greeting.');
+              } else {
+                console.error('Bot greeting error:', e);
+              }
+              
+              // Fallback greeting
+              const fallbacks = ['who goes there', 'another one', 'are you awake?', 'tell me a secret', 'i see you'];
+              const botText = fallbacks[Math.floor(Math.random() * fallbacks.length)];
+              
+              setTimeout(async () => {
+                io.emit('stopTyping', BOT_NAME);
+                isBotTyping = false;
+                
+                const botMsg = {
+                  id: Math.random().toString(36).substring(2, 10),
+                  user: BOT_NAME,
+                  icon: BOT_ICON,
+                  text: botText,
+                  timestamp: Date.now(),
+                  type: 'user'
+                };
+                
+                if (useDatabase) {
+                  await MessageModel.create(botMsg);
+                } else {
+                  messages.push(botMsg);
+                  if (messages.length > MAX_MESSAGES) messages.shift();
+                }
+                
+                io.emit('message', botMsg);
+              }, 2000);
+            }
+          }
+        }, 4000); // Wait 4 seconds after they join before starting to type
+      }
     });
 
     // Handle message edits
