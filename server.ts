@@ -69,6 +69,21 @@ async function startServer() {
     io.emit('userCount', connectedUsers.size + 1);
   };
 
+  // Helper to clean up old messages in DB
+  const cleanupOldMessagesDB = async () => {
+    if (!useDatabase) return;
+    try {
+      const count = await MessageModel.countDocuments();
+      if (count > MAX_MESSAGES) {
+        const oldestMessages = await MessageModel.find().sort({ timestamp: 1 }).limit(count - MAX_MESSAGES);
+        const oldestIds = oldestMessages.map(m => m._id);
+        await MessageModel.deleteMany({ _id: { $in: oldestIds } });
+      }
+    } catch (err) {
+      console.error('Error cleaning up old messages in DB:', err);
+    }
+  };
+
   // Ghost Bot Setup
   const ai = process.env.GEMINI_API_KEY ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }) : null;
   const BOT_NAME = 'anon';
@@ -125,14 +140,7 @@ async function startServer() {
       if (useDatabase) {
         try {
           await MessageModel.create(msg);
-          
-          // Optional: Cleanup old messages in DB if it gets too large
-          const count = await MessageModel.countDocuments();
-          if (count > MAX_MESSAGES) {
-            const oldestMessages = await MessageModel.find().sort({ timestamp: 1 }).limit(count - MAX_MESSAGES);
-            const oldestIds = oldestMessages.map(m => m._id);
-            await MessageModel.deleteMany({ _id: { $in: oldestIds } });
-          }
+          await cleanupOldMessagesDB();
         } catch (err) {
           console.error('Error saving message to DB:', err);
         }
@@ -148,7 +156,7 @@ async function startServer() {
       io.emit('message', msg);
 
       // Ghost Bot Reply Logic
-      if (ai && msg.user !== BOT_NAME && msg.type === 'user' && !isBotTyping) {
+      if (msg.user !== BOT_NAME && msg.type === 'user' && !isBotTyping) {
         const isMentioned = msg.text.toLowerCase().includes(BOT_NAME);
         // If few people are online, the bot is more chatty. If many, it's quieter.
         const replyChance = connectedUsers.size <= 2 ? 0.6 : 0.15;
@@ -157,93 +165,75 @@ async function startServer() {
           isBotTyping = true;
           
           setTimeout(async () => {
-            try {
-              let recentHistory = [];
-              if (useDatabase) {
-                recentHistory = await MessageModel.find().sort({ timestamp: -1 }).limit(10);
-                recentHistory = recentHistory.reverse();
-              } else {
-                recentHistory = messages.slice(-10);
-              }
-              
-              const historyText = recentHistory.map(m => `${m.user}: ${m.text}`).join('\n');
-              
-              io.emit('typing', BOT_NAME);
-              
-              const prompt = `You are an anonymous college student in a secret chatroom called ALIAS. You are NOT an AI. You are a real person. Keep your messages short, casual, all lowercase, maybe a typo or two. Be mysterious, slightly bored, or curious. Do not reveal you are a bot. Do not be overly helpful. Just chat like a normal, slightly edgy college student.
-              
+            let botText = '...';
+            let typingDelay = 2000;
+            
+            if (ai) {
+              try {
+                let recentHistory = [];
+                if (useDatabase) {
+                  recentHistory = await MessageModel.find().sort({ timestamp: -1 }).limit(10);
+                  recentHistory = recentHistory.reverse();
+                } else {
+                  recentHistory = messages.slice(-10);
+                }
+                
+                const historyText = recentHistory.map(m => `${m.user}: ${m.text}`).join('\n');
+                
+                io.emit('typing', BOT_NAME);
+                
+                const prompt = `You are an anonymous college student in a secret chatroom called ALIAS. You are NOT an AI. You are a real person. Keep your messages short, casual, all lowercase, maybe a typo or two. Be mysterious, slightly bored, or curious. Do not reveal you are a bot. Do not be overly helpful. Just chat like a normal, slightly edgy college student.
+                
 Recent chat history:
 ${historyText}
 
 Respond to the last message. Keep it under 15 words.`;
 
-              const response = await ai.models.generateContent({
-                model: 'gemini-3.1-flash-lite-preview',
-                contents: prompt,
-              });
-              
-              const botText = response.text?.trim() || '...';
-              
-              // Simulate typing delay based on length
-              const typingDelay = Math.min(Math.max(botText.length * 50, 1000), 4000);
-              
-              setTimeout(async () => {
-                io.emit('stopTyping', BOT_NAME);
-                isBotTyping = false;
+                const response = await ai.models.generateContent({
+                  model: 'gemini-3.1-flash-lite-preview',
+                  contents: prompt,
+                });
                 
-                const botMsg = {
-                  id: Math.random().toString(36).substring(2, 10),
-                  user: BOT_NAME,
-                  icon: BOT_ICON,
-                  text: botText,
-                  timestamp: Date.now(),
-                  type: 'user'
-                };
-                
-                if (useDatabase) {
-                  await MessageModel.create(botMsg);
+                botText = response.text?.trim() || '...';
+                typingDelay = Math.min(Math.max(botText.length * 50, 1000), 4000);
+              } catch (err: any) {
+                if (err?.message?.includes('API key not valid')) {
+                  console.warn('Bot API key invalid, using fallback reply.');
                 } else {
-                  messages.push(botMsg);
-                  if (messages.length > MAX_MESSAGES) messages.shift();
+                  console.error('Bot error:', err);
                 }
-                
-                io.emit('message', botMsg);
-              }, typingDelay);
+                const fallbacks = ['...', 'interesting', 'why?', 'im bored', 'sure', 'idk', 'maybe', 'who knows'];
+                botText = fallbacks[Math.floor(Math.random() * fallbacks.length)];
+              }
+            } else {
+              io.emit('typing', BOT_NAME);
+              const fallbacks = ['...', 'interesting', 'why?', 'im bored', 'sure', 'idk', 'maybe', 'who knows'];
+              botText = fallbacks[Math.floor(Math.random() * fallbacks.length)];
+            }
+            
+            setTimeout(async () => {
+              io.emit('stopTyping', BOT_NAME);
+              isBotTyping = false;
               
-            } catch (err: any) {
-              if (err?.message?.includes('API key not valid')) {
-                console.warn('Bot API key invalid, using fallback reply.');
+              const botMsg = {
+                id: Math.random().toString(36).substring(2, 10),
+                user: BOT_NAME,
+                icon: BOT_ICON,
+                text: botText,
+                timestamp: Date.now(),
+                type: 'user'
+              };
+              
+              if (useDatabase) {
+                await MessageModel.create(botMsg);
+                await cleanupOldMessagesDB();
               } else {
-                console.error('Bot error:', err);
+                messages.push(botMsg);
+                if (messages.length > MAX_MESSAGES) messages.shift();
               }
               
-              // Fallback response
-              const fallbacks = ['...', 'interesting', 'why?', 'im bored', 'sure', 'idk', 'maybe', 'who knows'];
-              const botText = fallbacks[Math.floor(Math.random() * fallbacks.length)];
-              
-              setTimeout(async () => {
-                io.emit('stopTyping', BOT_NAME);
-                isBotTyping = false;
-                
-                const botMsg = {
-                  id: Math.random().toString(36).substring(2, 10),
-                  user: BOT_NAME,
-                  icon: BOT_ICON,
-                  text: botText,
-                  timestamp: Date.now(),
-                  type: 'user'
-                };
-                
-                if (useDatabase) {
-                  await MessageModel.create(botMsg);
-                } else {
-                  messages.push(botMsg);
-                  if (messages.length > MAX_MESSAGES) messages.shift();
-                }
-                
-                io.emit('message', botMsg);
-              }, 2000);
-            }
+              io.emit('message', botMsg);
+            }, typingDelay);
           }, 2000); // Initial delay before starting to type
         }
       }
@@ -434,12 +424,7 @@ Respond to the last message. Keep it under 15 words.`;
       if (useDatabase) {
         try {
           await MessageModel.create(msg);
-          const count = await MessageModel.countDocuments();
-          if (count > MAX_MESSAGES) {
-            const oldestMessages = await MessageModel.find().sort({ timestamp: 1 }).limit(count - MAX_MESSAGES);
-            const oldestIds = oldestMessages.map(m => m._id);
-            await MessageModel.deleteMany({ _id: { $in: oldestIds } });
-          }
+          await cleanupOldMessagesDB();
         } catch (err) {
           console.error('Error saving system message:', err);
         }
@@ -451,79 +436,61 @@ Respond to the last message. Keep it under 15 words.`;
       io.emit('message', msg);
 
       // Ghost Bot Greeting Logic
-      if (ai && connectedUsers.size <= 3 && !isBotTyping && username !== BOT_NAME) {
+      if (connectedUsers.size <= 3 && !isBotTyping && username !== BOT_NAME) {
         setTimeout(async () => {
           // 70% chance to greet if it's quiet
           if (Math.random() < 0.7) {
             isBotTyping = true;
             io.emit('typing', BOT_NAME);
             
-            const prompt = `You are an anonymous college student in a secret chatroom called ALIAS. A new user named "${username}" just joined. Say something short, mysterious, or casual to them. All lowercase. Under 10 words. Do not reveal you are a bot.`;
+            let botText = 'who goes there';
             
-            try {
-              const response = await ai.models.generateContent({
-                model: 'gemini-3.1-flash-lite-preview',
-                contents: prompt,
-              });
+            if (ai) {
+              const prompt = `You are an anonymous college student in a secret chatroom called ALIAS. A new user named "${username}" just joined. Say something short, mysterious, or casual to them. All lowercase. Under 10 words. Do not reveal you are a bot.`;
               
-              const botText = response.text?.trim() || 'who goes there';
-              
-              setTimeout(async () => {
-                io.emit('stopTyping', BOT_NAME);
-                isBotTyping = false;
-                
-                const botMsg = {
-                  id: Math.random().toString(36).substring(2, 10),
-                  user: BOT_NAME,
-                  icon: BOT_ICON,
-                  text: botText,
-                  timestamp: Date.now(),
-                  type: 'user'
-                };
-                
-                if (useDatabase) {
-                  await MessageModel.create(botMsg);
+              try {
+                const response = await ai.models.generateContent({
+                  model: 'gemini-3.1-flash-lite-preview',
+                  contents: prompt,
+                });
+                botText = response.text?.trim() || 'who goes there';
+              } catch (e: any) {
+                if (e?.message?.includes('API key not valid')) {
+                  console.warn('Bot API key invalid, using fallback greeting.');
                 } else {
-                  messages.push(botMsg);
-                  if (messages.length > MAX_MESSAGES) messages.shift();
+                  console.error('Bot greeting error:', e);
                 }
-                
-                io.emit('message', botMsg);
-              }, 2000);
-            } catch (e: any) {
-              if (e?.message?.includes('API key not valid')) {
-                console.warn('Bot API key invalid, using fallback greeting.');
+                const fallbacks = ['who goes there', 'another one', 'are you awake?', 'tell me a secret', 'i see you'];
+                botText = fallbacks[Math.floor(Math.random() * fallbacks.length)];
+              }
+            } else {
+              const fallbacks = ['who goes there', 'another one', 'are you awake?', 'tell me a secret', 'i see you'];
+              botText = fallbacks[Math.floor(Math.random() * fallbacks.length)];
+            }
+            
+            setTimeout(async () => {
+              io.emit('stopTyping', BOT_NAME);
+              isBotTyping = false;
+              
+              const botMsg = {
+                id: Math.random().toString(36).substring(2, 10),
+                user: BOT_NAME,
+                icon: BOT_ICON,
+                text: botText,
+                timestamp: Date.now(),
+                type: 'user'
+              };
+              
+              if (useDatabase) {
+                await MessageModel.create(botMsg);
+                await cleanupOldMessagesDB();
               } else {
-                console.error('Bot greeting error:', e);
+                messages.push(botMsg);
+                if (messages.length > MAX_MESSAGES) messages.shift();
               }
               
-              // Fallback greeting
-              const fallbacks = ['who goes there', 'another one', 'are you awake?', 'tell me a secret', 'i see you'];
-              const botText = fallbacks[Math.floor(Math.random() * fallbacks.length)];
-              
-              setTimeout(async () => {
-                io.emit('stopTyping', BOT_NAME);
-                isBotTyping = false;
-                
-                const botMsg = {
-                  id: Math.random().toString(36).substring(2, 10),
-                  user: BOT_NAME,
-                  icon: BOT_ICON,
-                  text: botText,
-                  timestamp: Date.now(),
-                  type: 'user'
-                };
-                
-                if (useDatabase) {
-                  await MessageModel.create(botMsg);
-                } else {
-                  messages.push(botMsg);
-                  if (messages.length > MAX_MESSAGES) messages.shift();
-                }
-                
-                io.emit('message', botMsg);
-              }, 2000);
-            }
+              io.emit('message', botMsg);
+            }, 2000);
           }
         }, 4000); // Wait 4 seconds after they join before starting to type
       }
@@ -604,12 +571,7 @@ Respond to the last message. Keep it under 15 words.`;
         if (useDatabase) {
           try {
             await MessageModel.create(msg);
-            const count = await MessageModel.countDocuments();
-            if (count > MAX_MESSAGES) {
-              const oldestMessages = await MessageModel.find().sort({ timestamp: 1 }).limit(count - MAX_MESSAGES);
-              const oldestIds = oldestMessages.map(m => m._id);
-              await MessageModel.deleteMany({ _id: { $in: oldestIds } });
-            }
+            await cleanupOldMessagesDB();
           } catch (err) {
             console.error('Error saving system message:', err);
           }
