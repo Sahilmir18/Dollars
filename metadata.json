@@ -1,5 +1,6 @@
 {
   "name": "Alias",
   "description": "An anonymous chat application inspired by the Dollars gang from Durarara!!",
-  "requestFramePermissions": []
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

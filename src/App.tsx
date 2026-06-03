@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { Send, LogOut, User, Headphones, Smile, UserCircle, UserSquare, Frown, Meh, Laugh, Angry, Annoyed, Ghost, Skull, Glasses, Heart, Bot, Cat, Dog, Star, Pencil, X, Trash2, Reply, Zap, Sparkles, VolumeX, Volume2, SmilePlus, ThumbsDown, Eraser } from 'lucide-react';
+import { Send, LogOut, User, Headphones, Smile, UserCircle, UserSquare, Frown, Meh, Laugh, Angry, Annoyed, Ghost, Skull, Glasses, Heart, Bot, Cat, Dog, Star, Pencil, X, Trash2, Reply, Zap, Sparkles, VolumeX, Volume2, SmilePlus, ThumbsDown, Eraser, Share2, Copy, Check } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { motion, AnimatePresence } from 'motion/react';
@@ -25,6 +25,13 @@ interface Message {
     text: string;
   };
   icon?: string;
+  rank?: string;
+  streakDays?: number;
+  cosmetics?: {
+    bubbleTheme?: string;
+    nameEffect?: string;
+    title?: string;
+  };
 }
 
 const playNotificationSound = () => {
@@ -94,6 +101,8 @@ const AVAILABLE_ICONS = [
   'Ghost', 'Skull', 'Glasses', 'Heart', 'Bot'
 ];
 
+
+
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [password, setPassword] = useState('');
@@ -101,6 +110,39 @@ export default function App() {
   const [selectedIcon, setSelectedIcon] = useState<string>('User');
   const [error, setError] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
+
+  // Share States
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const getShareUrl = () => {
+    return window.location.origin;
+  };
+
+  const handleCopyLink = () => {
+    const shareUrl = getShareUrl();
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(shareUrl).then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        });
+      } else {
+        const tempInput = document.createElement('textarea');
+        tempInput.value = shareUrl;
+        document.body.appendChild(tempInput);
+        tempInput.select();
+        document.execCommand('copy');
+        document.body.removeChild(tempInput);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      }
+    } catch (err) {
+      console.error('Failed to copy text: ', err);
+    }
+  };
+
+
 
   const [socket, setSocket] = useState<Socket | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -348,7 +390,21 @@ export default function App() {
 
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen bg-black text-gray-300 font-sans flex flex-col items-center justify-center p-4">
+      <div className="min-h-screen bg-black text-gray-300 font-sans flex flex-col items-center justify-center p-4 relative">
+        {/* Floating Share Button at current screen top-right */}
+        <div className="absolute top-4 right-4 z-10">
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => setIsShareModalOpen(true)}
+            className="flex items-center gap-2 px-4 py-2 border border-gray-800 hover:border-white hover:text-white transition-colors rounded-full text-xs font-semibold uppercase tracking-wider bg-black/50 cursor-pointer"
+            title="Share ALIAS Chatroom Link"
+          >
+            <Share2 size={13} />
+            <span>Share</span>
+          </motion.button>
+        </div>
+
         <div className="w-full max-w-md space-y-8">
           <div className="text-center flex flex-col items-center">
             <div className="flex items-center justify-center gap-4 mb-3">
@@ -395,7 +451,7 @@ export default function App() {
                     type="button"
                     onClick={() => setSelectedIcon(iconName)}
                     className={cn(
-                      "w-10 h-10 flex items-center justify-center border transition-all",
+                       "w-10 h-10 flex items-center justify-center border transition-all",
                       isSelected 
                         ? "border-green-500 bg-green-500/20 text-green-400" 
                         : "border-gray-800 bg-gray-900 text-gray-500 hover:border-gray-600 hover:text-gray-300"
@@ -464,6 +520,72 @@ export default function App() {
             </motion.button>
           </motion.form>
         </div>
+
+        {/* Share Modal Overlay */}
+        <AnimatePresence>
+          {isShareModalOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4 backdrop-blur-sm">
+              <motion.div 
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                className="bg-gray-950 border border-gray-900 max-w-sm w-full rounded-xl overflow-hidden shadow-2xl flex flex-col p-6 space-y-6 relative"
+              >
+                <button 
+                  onClick={() => setIsShareModalOpen(false)}
+                  className="absolute top-4 right-4 text-gray-500 hover:text-white transition-colors"
+                  title="Close"
+                >
+                  <X size={18} />
+                </button>
+
+                <div className="text-center space-y-2">
+                  <h3 className="text-white font-bold tracking-widest uppercase text-sm flex items-center justify-center gap-2">
+                    <Share2 size={16} className="text-white" />
+                    Share ALIAS
+                  </h3>
+                  <p className="text-[10px] text-gray-500 uppercase tracking-wider font-semibold">
+                    Scan the QR code or copy the link below
+                  </p>
+                </div>
+
+                {/* QR Code Container */}
+                <div className="flex flex-col items-center justify-center p-4 bg-white rounded-lg max-w-[180px] mx-auto shadow-sm select-auto">
+                  <img 
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(getShareUrl())}&color=000000&bgcolor=ffffff`}
+                    alt="QR Code for ALIAS Chatroom"
+                    className="w-[150px] h-[150px] object-contain select-all"
+                    referrerPolicy="no-referrer"
+                  />
+                </div>
+
+                {/* Input Copy Link Field */}
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 bg-gray-900/60 border border-gray-800 rounded-lg p-2 pl-3">
+                    <input
+                      type="text"
+                      readOnly
+                      value={getShareUrl()}
+                      className="bg-transparent text-xs text-gray-300 outline-none w-full select-all font-mono"
+                    />
+                    <button
+                      onClick={handleCopyLink}
+                      className="flex-shrink-0 text-[10px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-md bg-white text-black hover:bg-gray-200 transition-colors flex items-center gap-1 cursor-pointer"
+                      title="Copy Link to Clipboard"
+                    >
+                      {copied ? <Check size={11} className="text-black" /> : <Copy size={11} className="text-black" />}
+                      <span>{copied ? 'Copied' : 'Copy'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="text-center text-[9px] text-gray-600 font-mono tracking-wider uppercase">
+                  Zero telemetry &middot; Anonymous Chatroom
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
       </div>
     );
   }
@@ -472,13 +594,16 @@ export default function App() {
     <div className="h-[100dvh] bg-black text-gray-300 font-sans flex flex-col overflow-hidden">
       {/* Header */}
       <header className="flex justify-between items-center p-4 border-b border-gray-900 bg-black shrink-0">
-        <div className="flex items-center gap-2">
-          <div className="w-4 h-4 bg-white rounded-full"></div>
-          <h1 className="text-xl font-light text-white uppercase tracking-widest">ALIAS</h1>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5">
+            <div className="w-3 h-3 bg-white rounded-full"></div>
+            <h1 className="text-xl font-light text-white uppercase tracking-widest">ALIAS</h1>
+          </div>
         </div>
-        <div className="flex items-center gap-6">
-          <div className="flex items-center gap-2 text-xs text-gray-400 uppercase tracking-widest">
-            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+        <div className="flex items-center gap-4 sm:gap-6">
+
+          <div className="flex items-center gap-2 text-xs text-gray-400 uppercase tracking-widest select-none">
+            <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></div>
             {userCount} Online
           </div>
           <motion.button 
@@ -582,13 +707,17 @@ export default function App() {
               }}
             >
               {/* Avatar */}
-              <div className="flex flex-col items-center w-16 shrink-0">
-                <div className={cn("w-12 h-12 border-2 border-white flex items-center justify-center mb-1", getUserColor(msg.user))}>
+              <div className="flex flex-col items-center w-16 shrink-0 text-center select-none">
+                <div className={cn(
+                  "w-12 h-12 border-2 flex items-center justify-center mb-1 relative rounded-lg border-white", 
+                  getUserColor(msg.user)
+                )}>
                   {getUserIcon(msg.icon, msg.user)}
                 </div>
-                <div className="flex items-center gap-1 w-full justify-center">
-                  <span className="text-white text-xs truncate text-center">{msg.user}</span>
-                  {getUserBadge(msg.user)}
+                <div className="flex flex-col items-center gap-0.5 w-full justify-center">
+                  <span className="text-[11px] truncate max-w-full text-center font-bold text-white">
+                    {msg.user}
+                  </span>
                 </div>
               </div>
 
@@ -597,13 +726,16 @@ export default function App() {
                 <div className="flex items-end gap-2">
                   <div className="relative">
                     {/* Tail */}
-                    <div className={cn("absolute -left-2 top-3 w-4 h-4 border-t-2 border-l-2 border-white transform -rotate-45", getUserColor(msg.user))}></div>
+                    <div className={cn(
+                      "absolute -left-2 top-3 w-4 h-4 border-t-2 border-l-2 transform -rotate-45 border-white", 
+                      getUserColor(msg.user)
+                    )}></div>
                     
                     {/* Bubble */}
                     <div className={cn(
-                      "relative z-10 px-4 py-2 border-2 rounded-xl text-white text-sm break-words transition-all duration-500", 
+                      "relative z-10 px-4 py-2 border-2 rounded-xl text-white text-sm break-words transition-all duration-500 border-white shadow-sm", 
                       getUserColor(msg.user),
-                      (msg.likes?.length || 0) + (msg.reactions ? (Object.values(msg.reactions) as string[][]).reduce((acc, curr) => acc + curr.length, 0) : 0) >= 2 ? "border-white shadow-[0_0_15px_rgba(255,255,255,0.4)] bg-white/10" : "border-white shadow-sm"
+                      (msg.likes?.length || 0) + (msg.reactions ? (Object.values(msg.reactions) as string[][]).reduce((acc, curr) => acc + curr.length, 0) : 0) >= 2 ? "shadow-[0_0_15px_rgba(255,255,255,0.4)] bg-white/10" : ""
                     )}>
                       {msg.replyTo && (
                         <div className="mb-2 pl-2 border-l-2 border-white/50 text-xs text-white/70 bg-black/20 rounded-r p-1">
@@ -859,6 +991,8 @@ export default function App() {
           </motion.div>
         </div>
       )}
+
+
     </div>
   );
 }

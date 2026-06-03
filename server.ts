@@ -22,6 +22,13 @@ const messageSchema = new mongoose.Schema({
     id: String,
     user: String,
     text: String
+  },
+  rank: String,
+  streakDays: Number,
+  cosmetics: {
+    bubbleTheme: String,
+    nameEffect: String,
+    title: String
   }
 });
 const MessageModel = mongoose.model('Message', messageSchema);
@@ -58,7 +65,7 @@ async function startServer() {
   }
 
   // Server-side state for chat messages (Fallback if DB is not configured)
-  const messages: { id: string; user: string; icon?: string; text: string; timestamp: number; type?: string; isEdited?: boolean; likes?: string[]; dislikes?: string[]; reactions?: Record<string, string[]>; replyTo?: { id: string; user: string; text: string } }[] = [];
+  const messages: { id: string; user: string; icon?: string; text: string; timestamp: number; type?: string; isEdited?: boolean; likes?: string[]; dislikes?: string[]; reactions?: Record<string, string[]>; replyTo?: { id: string; user: string; text: string }; rank?: string; streakDays?: number; cosmetics?: { bubbleTheme?: string; nameEffect?: string; title?: string } }[] = [];
   const MAX_MESSAGES = 200;
 
   const connectedUsers = new Map<string, { username: string; icon: string }>();
@@ -134,7 +141,10 @@ async function startServer() {
         text: data.text,
         timestamp: Date.now(),
         type: 'user',
-        replyTo: data.replyTo
+        replyTo: data.replyTo,
+        rank: data.rank,
+        streakDays: data.streakDays,
+        cosmetics: data.cosmetics
       };
       
       if (useDatabase) {
