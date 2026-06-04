@@ -259,7 +259,7 @@ export default function App() {
     // Simulate a network request for validation
     await new Promise(resolve => setTimeout(resolve, 1500));
 
-    if (password.toLowerCase() !== 'cutmyfeet') {
+    if (password.trim().toLowerCase() !== 'cutmyfeet') {
       setError('Incorrect password.');
       setIsLoggingIn(false);
       return;
@@ -472,7 +472,10 @@ export default function App() {
             className="space-y-6 mt-8"
           >
             <div>
-              <label className="block text-xs uppercase tracking-widest mb-2 text-gray-500">Password</label>
+              <div className="flex justify-between items-center mb-2">
+                <label className="block text-xs uppercase tracking-widest text-gray-500">Password</label>
+                <span className="text-[10px] font-mono text-gray-400 uppercase tracking-wider">Use password: <span className="text-green-400 font-semibold select-all">cutmyfeet</span></span>
+              </div>
               <input
                 type="password"
                 value={password}
